@@ -32,17 +32,13 @@ export async function GET(request: Request) {
           query.trim()
         )}&nameMatchMode=Auto&maxResults=10&lang=Japanese`;
 
-        const aController = new AbortController();
-        const aTimer = setTimeout(() => aController.abort(), 2500);
         const aRes = await fetch(artistSearchUrl, {
           headers: {
             Accept: 'application/json',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VocaHub/1.0',
           },
-          signal: aController.signal,
           cache: 'no-store',
         });
-        clearTimeout(aTimer);
 
         if (aRes.ok) {
           const aData = await aRes.json();
@@ -104,19 +100,13 @@ export async function GET(request: Request) {
 
     const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
-
     const res = await fetch(vocaUrl, {
       headers: {
         Accept: 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VocaHub/1.0',
       },
-      signal: controller.signal,
       cache: 'no-store',
     });
-
-    clearTimeout(timeoutId);
 
     let items: any[] = [];
     let totalCount = 0;
@@ -127,10 +117,13 @@ export async function GET(request: Request) {
       totalCount = data.totalCount || items.length;
     }
 
-  // ★ 常にVocaDBとYouTubeの両方から検索してマージする
+    // ★ 常にYouTubeオンデマンド検索を並行して実行し、Vercelログに結果を出力する
     if (query.trim()) {
+      console.log(`[VocaHub Debug] Triggering YouTube search for query: "${query.trim()}"`);
       try {
         const ytResults = await searchYouTubeOnDemand(query.trim());
+        console.log(`[VocaHub Debug] YouTube search returned ${ytResults.length} items`);
+        
         if (ytResults && ytResults.length > 0) {
           const existingIds = new Set(items.map(item => String(item.id)));
           const uniqueYtItems = ytResults.filter(yt => !existingIds.has(String(yt.id)));
@@ -138,7 +131,7 @@ export async function GET(request: Request) {
           totalCount = items.length;
         }
       } catch (ytError) {
-        console.error('YouTube on-demand merge error:', ytError);
+        console.error('[VocaHub Debug] YouTube search error:', ytError);
       }
     }
 
@@ -147,6 +140,7 @@ export async function GET(request: Request) {
       totalCount,
     });
   } catch (error) {
+    console.error('[VocaHub Debug] API route fatal error:', error);
     return NextResponse.json({ items: [], totalCount: 0 }, { status: 200 });
   }
 }
