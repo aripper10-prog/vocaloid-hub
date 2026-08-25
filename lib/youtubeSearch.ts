@@ -1,4 +1,3 @@
-// 完全に独立したYouTubeオンデマンド検索モジュール
 export async function searchYouTubeOnDemand(query: string): Promise<any[]> {
   const apiKey = process.env.YOUTUBE_API_KEY;
   if (!apiKey) {
@@ -7,18 +6,22 @@ export async function searchYouTubeOnDemand(query: string): Promise<any[]> {
   }
 
   try {
+    // 検索クエリを調整（「作詞師」などを削って純粋な名前や関連ワードでもヒットしやすくする）
+    const cleanQuery = query.replace(/作詞師/g, '').trim() || query;
+
     const res = await fetch(
       `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
-        query
+        cleanQuery
       )}&maxResults=10&key=${apiKey}`
     );
     const data = await res.json();
 
-    if (!data.items || !Array.isArray(data.items)) {
+    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+      console.log(`[YouTube Search] No items found for query: ${cleanQuery}`);
       return [];
     }
 
-    const videoIds = data.items.map((item: any) => item.id.videoId).join(',');
+    const videoIds = data.items.map((item: any) => item.id.videoId).filter(Boolean).join(',');
     if (!videoIds) return [];
 
     const detailsRes = await fetch(
@@ -31,13 +34,12 @@ export async function searchYouTubeOnDemand(query: string): Promise<any[]> {
     const results: any[] = detailsData.items.map((item: any) => {
       const snippet = item.snippet;
       const stats = item.statistics;
-      const description = snippet.description || '';
-      const title = snippet.title || '';
-
+      
       return {
         id: `yt_${item.id}`,
-        title: title,
+        title: snippet.title || 'Untitled',
         artists: snippet.channelTitle ? [{ name: snippet.channelTitle }] : [],
+        artistString: snippet.channelTitle || 'Unknown Artist',
         songType: 'Original',
         thumbUrl: snippet.thumbnails?.high?.url || snippet.thumbnails?.medium?.url || '',
         publishDate: snippet.publishedAt,
@@ -45,8 +47,8 @@ export async function searchYouTubeOnDemand(query: string): Promise<any[]> {
         niconicoId: undefined,
         credits: [
           {
-            role: 'Composer',
-            creatorName: snippet.channelTitle || 'Unknown',
+            role: 'Lyricist',
+            creatorName: query, // ご自身のペンネームをクレジットとして強制付与
           },
         ],
         viewCount: stats?.viewCount ? parseInt(stats.viewCount, 10) : undefined,
