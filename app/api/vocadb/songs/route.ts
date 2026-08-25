@@ -1,5 +1,14 @@
 import { NextResponse } from 'next/server';
 
+// 外部APIのエンドポイント（安全な直定義）
+const API_ENDPOINTS = {
+  VOCADB_SONGS: 'https://vocadb.net/api/songs',
+  VOCADB_ARTISTS: 'https://vocadb.net/api/artists',
+  GEMINI_FLASH: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+  YOUTUBE_SEARCH: 'https://www.googleapis.com/youtube/v3/search',
+  YOUTUBE_VIDEOS: 'https://www.googleapis.com/youtube/v3/videos',
+};
+
 const VOCADB_ROLE_MAP: Record<string, string> = {
   music: 'Composer',
   lyrics: 'Lyricist',
@@ -11,76 +20,83 @@ const VOCADB_ROLE_MAP: Record<string, string> = {
   dance: 'Other',
 };
 
-function shouldSearchYouTube(query: string): boolean {
-  const q = query.trim().toLowerCase();
-  const personalKeywords = ['作詞師ari', 'ari', 'alice and lemonade'];
-  return personalKeywords.some((keyword) => q.includes(keyword));
+function sanitizeDescription(description: string = ''): string {
+  return description
+    .replace(/```/g, '')
+    .slice(0, 1000);
 }
 
-// Gemini APIを使った高精度クレジット抽出 ＆ 職域判定
-async function parseCreditsWithGemini(description: string = '', channelTitle: string = '', query: string = ''): Promise<Array<{ role: string; creatorName: string }>> {
+// クレジット抽出 ＆ 関連度判定
+async function parseCreditsWithGemini(
+  description: string = '', 
+  channelTitle: string = '', 
+  query: string = ''
+): Promise<{ credits: any[]; isRelevant: boolean }> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || !description.trim()) {
-    return [
-      { role: 'lyrics', creatorName: query.trim() || 'Unknown' },
-      { role: 'music', creatorName: channelTitle },
-    ];
+  const safeDescription = sanitizeDescription(description);
+
+  if (!apiKey || !safeDescription.trim()) {
+    return {
+      credits: [
+        { role: 'lyrics', creatorName: query.trim() || 'Unknown' },
+        { role: 'music', creatorName: channelTitle },
+      ],
+      isRelevant: true,
+    };
   }
 
   try {
-    const prompt = `
-以下のYouTube動画の概要欄とチャンネル名から、音楽制作に関わったクリエイターのクレジットを抽出し、JSONの配列形式でのみ出力してください。
+    const prompt = 
+      '以下の情報はYouTube動画のメタデータです。\n' +
+      '検索クエリ: "' + query + '"\n' +
+      'チャンネル名: "' + channelTitle + '"\n' +
+      '概要欄:\n' + safeDescription + '\n\n' +
+      '【タスク1：関連度判定 (isRelevant)】\n' +
+      'この動画は、検索クエリ "' + query + '" に関連する音楽作品、あるいは関係するクリエイター（本人や関連アーティスト、個人制作など）の動画と言えますか？\n' +
+      '無関係な有名アーティストの公式MV等でない限り、できるだけ true にしてください（完全に無関係な場合のみ false）。\n\n' +
+      '【タスク2：クレジット抽出 (credits)】\n' +
+      '音楽制作に関わったクリエイターのクレジットを抽出してください。\n' +
+      '使用可能な8種類のロール: "music", "lyrics", "tuning", "singer", "mix", "illust", "movie", "dance"\n\n' +
+      '【出力形式の指定】\n' +
+      '余計な挨拶やマークダウンは一切含めず、純粋なJSON形式のみを返してください。\n' +
+      '{\n  "isRelevant": true,\n  "credits": [\n    {"role": "lyrics", "creatorName": "〇〇"}\n  ]\n}';
 
-【対象の職域ロール（8種類のみ使用可能）】
-- "music" (作曲/編曲)
-- "lyrics" (作詞)
-- "tuning" (調声)
-- "singer" (ボーカル/歌唱)
-- "mix" (MIX/マスタリング)
-- "illust" (イラスト/絵)
-- "movie" (動画/映像/MV)
-- "dance" (振付/ダンス)
-
-【入力情報】
-チャンネル名: ${channelTitle}
-検索クエリ(関係者である可能性高): ${query}
-概要欄:
-${description}
-
-【出力形式の指定】
-余計な挨拶やマークダウンのバッククォート（\`\`\`など）は一切含めず、純粋なJSON配列のみを返してください。例：
-[
-  {"role": "lyrics", "creatorName": "作詞師ari"},
-  {"role": "music", "creatorName": "〇〇"}
-]
-`;
-
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    const res = await fetch(API_ENDPOINTS.GEMINI_FLASH + '?key=' + apiKey, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }]
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
       }),
     });
 
     if (res.ok) {
       const data = await res.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '[]';
-      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '{}';
+      
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      const cleanJson = jsonMatch ? jsonMatch[0] : text.replace(/```json/g, '').replace(/```/g, '').trim();
+      
       const parsed = JSON.parse(cleanJson);
 
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
+      return {
+        isRelevant: typeof parsed.isRelevant === 'boolean' ? parsed.isRelevant : true,
+        credits: Array.isArray(parsed.credits) ? parsed.credits : [],
+      };
     }
   } catch (e) {
-    console.error('Gemini credit parsing error:', e);
+    console.error('Gemini parse & relevance error:', e);
   }
 
-  return [
-    { role: 'lyrics', creatorName: query.trim() || 'Unknown' },
-    { role: 'music', creatorName: channelTitle },
-  ];
+  return {
+    credits: [
+      { role: 'lyrics', creatorName: query.trim() || 'Unknown' },
+      { role: 'music', creatorName: channelTitle },
+    ],
+    isRelevant: true,
+  };
 }
 
 export async function GET(request: Request) {
@@ -93,15 +109,13 @@ export async function GET(request: Request) {
     const start = searchParams.get('start') || '0';
     const parentVersionId = searchParams.get('parentVersionId');
     let artistId = searchParams.get('artistId');
-    const role = searchParams.get('role'); // 例: 'music', 'singer' など
+    const role = searchParams.get('role');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
-    // --- 1. クリエイター検索モード時: アーティストIDの自動解決 ---
+    // --- 1. クリエイター検索モード時: アーティストIDの確実な自動解決 ---
     if (mode === 'creator' && query.trim() && !artistId) {
       try {
-        const artistSearchUrl = `https://vocadb.net/api/artists?query=${encodeURIComponent(
-          query.trim()
-        )}&nameMatchMode=Auto&maxResults=10&lang=Japanese`;
+        const artistSearchUrl = API_ENDPOINTS.VOCADB_ARTISTS + '?query=' + encodeURIComponent(query.trim()) + '&nameMatchMode=Auto&maxResults=10&lang=Japanese';
 
         const aController = new AbortController();
         const aTimer = setTimeout(() => aController.abort(), 2500);
@@ -136,7 +150,9 @@ export async function GET(request: Request) {
             artistId = String(items[0].id);
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('Artist ID resolution error:', e);
+      }
     }
 
     // --- 2. VocaDB楽曲検索の実行 ---
@@ -165,7 +181,6 @@ export async function GET(request: Request) {
         vocaParams.set('nameMatchMode', 'Auto');
       }
 
-      // ★ VocaDB公式のアーティストロール絞り込みパラメータを厳格に適用
       if (role && role !== 'all' && VOCADB_ROLE_MAP[role]) {
         vocaParams.append('artistRole', VOCADB_ROLE_MAP[role]);
       }
@@ -175,7 +190,7 @@ export async function GET(request: Request) {
         vocaParams.set('childTags', 'true');
       }
 
-      const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
+      const vocaUrl = API_ENDPOINTS.VOCADB_SONGS + '?' + vocaParams.toString();
       const vocaRes = await fetch(vocaUrl, {
         headers: {
           Accept: 'application/json',
@@ -195,10 +210,8 @@ export async function GET(request: Request) {
       const youtubePv = (item.pvs || []).find((p: any) => p.service === 'Youtube');
       const niconicoPv = (item.pvs || []).find((p: any) => p.service === 'NicoNicoDouga');
 
-      // VocaDBのartists情報から独自の credits 構造へマッピングを補強
       const mappedCredits = (item.artists || []).map((art: any) => {
         const roles = art.roles || [];
-        // VocaDBの英語ロールを内部の8つに逆引き
         let derivedRole = 'music';
         if (roles.includes('Lyricist')) derivedRole = 'lyrics';
         else if (roles.includes('Composer')) derivedRole = 'music';
@@ -228,18 +241,16 @@ export async function GET(request: Request) {
       };
     });
 
-    // --- 3. YouTube検索の統合判定 ---
+    // --- 3. YouTube検索の統合判定（ハードコード排除版） ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
-    const isPersonalQuery = shouldSearchYouTube(query);
-    const shouldFetchYT = Boolean(query.trim() && apiKey && (vocaItems.length === 0 || isPersonalQuery || mode === 'creator'));
+    // VocaDBでヒットしなかった場合、またはクリエイター検索モードの場合は自動的にYouTubeをフォールバック検索
+    const shouldFetchYT = Boolean(query.trim() && apiKey && (vocaItems.length === 0 || mode === 'creator'));
 
     if (shouldFetchYT) {
       try {
-        const exactQuery = `"${query.trim()}"`;
-        const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
-          exactQuery
-        )}&maxResults=20&key=${apiKey}`;
+        const exactQuery = '"' + query.trim() + '"';
+        const ytUrl = API_ENDPOINTS.YOUTUBE_SEARCH + '?part=snippet&type=video&q=' + encodeURIComponent(exactQuery) + '&maxResults=20&key=' + apiKey;
 
         const ytRes = await fetch(ytUrl);
         const ytData = await ytRes.json();
@@ -251,20 +262,24 @@ export async function GET(request: Request) {
             .join(',');
 
           if (videoIds) {
-            const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoIds}&key=${apiKey}`;
+            const detailsUrl = API_ENDPOINTS.YOUTUBE_VIDEOS + '?part=snippet,statistics&id=' + videoIds + '&key=' + apiKey;
             const detailsRes = await fetch(detailsUrl);
             const detailsData = await detailsRes.json();
 
             if (detailsData.items && Array.isArray(detailsData.items)) {
-              ytItems = await Promise.all(
+              const mappedYtItems = await Promise.all(
                 detailsData.items.map(async (item: any) => {
                   const channelTitle = item.snippet?.channelTitle || 'Unknown';
                   const description = item.snippet?.description || '';
                   
-                  const parsedCredits = await parseCreditsWithGemini(description, channelTitle, query);
+                  const { credits: parsedCredits, isRelevant } = await parseCreditsWithGemini(description, channelTitle, query);
+
+                  if (!isRelevant) {
+                    return null;
+                  }
 
                   return {
-                    id: `yt_${item.id}`,
+                    id: 'yt_' + item.id,
                     title: item.snippet?.title || 'Untitled',
                     artists: [
                       {
@@ -281,7 +296,7 @@ export async function GET(request: Request) {
                     pvs: [
                       {
                         service: 'Youtube',
-                        url: `https://www.youtube.com/watch?v=${item.id}`,
+                        url: '[https://www.youtube.com/watch?v=](https://www.youtube.com/watch?v=)' + item.id,
                         pvId: item.id,
                       },
                     ],
@@ -300,6 +315,8 @@ export async function GET(request: Request) {
                   };
                 })
               );
+
+              ytItems = mappedYtItems.filter(Boolean);
             }
           }
         }
@@ -308,19 +325,21 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 4. 【厳格な職域フィルター】指定したロールとクリエイター名が完全に一致するものだけを通す ---
+    // --- 4. 統合 ＆ 柔軟なフィルター ---
     let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
 
     if (mode === 'creator' && query.trim()) {
       const targetQuery = query.trim().toLowerCase();
 
       allItems = allItems.filter((item: any) => {
+        const isYouTubeItem = String(item.id).startsWith('yt_');
+        if (isYouTubeItem) return true;
+
         const credits = item.credits || [];
         const artists = item.artists || [];
         const artistString = (item.artistString || '').toLowerCase();
         const title = (item.title || '').toLowerCase();
 
-        // 基本：名前（クリエイター名やアーティスト文字列）にクエリが含まれているか
         const nameMatched = credits.some((c: any) => (c.creatorName || '').toLowerCase().includes(targetQuery)) ||
                             artists.some((a: any) => (a.name || '').toLowerCase().includes(targetQuery)) ||
                             artistString.includes(targetQuery) ||
@@ -328,7 +347,6 @@ export async function GET(request: Request) {
 
         if (!nameMatched) return false;
 
-        // ★ ロール（職域）が指定されている場合は、その特定のロールで関わっているかを「厳格」にチェックする
         if (role && role !== 'all') {
           const hasExactRole = credits.some((c: any) => 
             c.role === role && (c.creatorName || '').toLowerCase().includes(targetQuery)
@@ -336,20 +354,19 @@ export async function GET(request: Request) {
             const aName = (a.name || '').toLowerCase();
             const aRoles = a.roles || [];
             const matchesName = aName.includes(targetQuery);
-            // VocaDBの英語ロールと一致するか確認
             const targetDbRole = VOCADB_ROLE_MAP[role];
             const matchesRole = targetDbRole ? aRoles.includes(targetDbRole) : true;
             return matchesName && matchesRole;
           });
 
-          return hasExactRole; // ロールが一致しないものはここで弾かれるため、ガセヒットが消滅します！
+          return hasExactRole;
         }
 
         return true;
       });
     }
 
-    const totalCount = allItems.length;
+    const totalCount = vocaData.totalCount > 0 ? vocaData.totalCount : allItems.length;
 
     return NextResponse.json(
       {
