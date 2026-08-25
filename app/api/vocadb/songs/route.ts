@@ -102,7 +102,7 @@ ${safeDescription}
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const query = searchParams.get('query'] || searchParams.get('q') || '';
+    const query = searchParams.get('query') || searchParams.get('q') || '';
     const rawQuery = searchParams.get('query') || '';
     const mode = searchParams.get('mode') || 'song';
     const sort = searchParams.get('sort') || 'PublishDate';
@@ -321,7 +321,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 4. 職域フィルター（アーティストIDですでに絞り込まれている場合は過剰に弾かないように配慮） ---
+    // --- 4. 職域フィルター ---
     let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
 
     if (mode === 'creator' && rawQuery.trim() && !artistId) {
