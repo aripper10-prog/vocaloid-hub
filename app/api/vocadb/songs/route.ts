@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 
-// 外部APIのエンドポイント（安全な直定義）
 const API_ENDPOINTS = {
   VOCADB_SONGS: 'https://vocadb.net/api/songs',
   VOCADB_ARTISTS: 'https://vocadb.net/api/artists',
@@ -21,12 +20,10 @@ const VOCADB_ROLE_MAP: Record<string, string> = {
 };
 
 function sanitizeDescription(description: string = ''): string {
-  return description
-    .replace(/```/g, '')
-    .slice(0, 1000);
+  return description.replace(/```/g, '').slice(0, 1000);
 }
 
-// 厳格なノイズ判定 ＆ クレジット抽出
+// YouTubeの概要欄からGeminiでクレジット抽出 ＆ ノイズ判定
 async function parseCreditsWithGemini(
   description: string = '', 
   channelTitle: string = '', 
@@ -110,13 +107,12 @@ export async function GET(request: Request) {
     const start = searchParams.get('start') || '0';
     const parentVersionId = searchParams.get('parentVersionId');
     let artistId = searchParams.get('artistId');
-    const role = searchParams.get('role');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
     const tagId = searchParams.get('tagId');
     const tag = searchParams.get('tag');
 
-    // --- 1. クリエイター検索モード時: アーティストIDの確実な自動解決 ---
+    // --- 1. クリエイター検索モード時: アーティストIDの自動解決 ---
     if (mode === 'creator' && query.trim() && !artistId) {
       try {
         const artistSearchUrl = API_ENDPOINTS.VOCADB_ARTISTS + '?query=' + encodeURIComponent(query.trim()) + '&nameMatchMode=Auto&maxResults=10&lang=Japanese';
@@ -172,8 +168,7 @@ export async function GET(request: Request) {
         songTypes: songTypes,
       });
 
-      // クエリがある場合のみ設定（タグ検索時にクエリで上書きして消滅するのを防止）
-      if (query.trim()) {
+      if (query.trim() && mode === 'song') {
         vocaParams.set('query', query.trim());
         vocaParams.set('nameMatchMode', 'Auto');
       }
@@ -183,16 +178,8 @@ export async function GET(request: Request) {
         vocaParams.set('artistParticipationStatus', 'Everything');
       }
 
-      if (tagId) {
-        vocaParams.set('tagId', tagId);
-      }
-      if (tag) {
-        vocaParams.set('tag', tag);
-      }
-
-      if (role && role !== 'all' && VOCADB_ROLE_MAP[role]) {
-        vocaParams.append('artistRole', VOCADB_ROLE_MAP[role]);
-      }
+      if (tagId) vocaParams.set('tagId', tagId);
+      if (tag) vocaParams.set('tag', tag);
 
       if (parentVersionId && !isNaN(Number(parentVersionId))) {
         vocaParams.set('parentVersionId', parentVersionId);
@@ -250,14 +237,14 @@ export async function GET(request: Request) {
       };
     });
 
-    // --- 3. YouTube検索の統合判定（完全一致クエリ ＋ ボカロ・インディーズ文脈の補強でノイズ防止） ---
+    // --- 3. 【常時並行】YouTube検索の実行（VocaDBのヒット有無に関わらず完全一致で走査） ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
-    const shouldFetchYT = Boolean(query.trim() && apiKey && (vocaItems.length === 0 || mode === 'creator'));
+    const shouldFetchYT = Boolean(query.trim() && apiKey);
 
     if (shouldFetchYT) {
       try {
-        // 完全一致クエリを維持しつつ、ノイズ（米津さん等）を弾くためのガードを強化
+        // 米津ノイズを防ぐための厳格な完全一致クエリ (例: ""まふまふ"")
         const exactQuery = '"' + query.trim() + '"';
         const ytUrl = API_ENDPOINTS.YOUTUBE_SEARCH + '?part=snippet&type=video&q=' + encodeURIComponent(exactQuery) + '&maxResults=20&key=' + apiKey;
 
@@ -334,47 +321,28 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 4. 統合 ＆ フィルター ---
-    let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
+    // --- 4. VocaDBデータとYouTubeデータの綺麗なマージ ---
+    // YouTube側アイテムのPV/IDがVocaDB側と重複する場合はVocaDB側を優先しつつ、不足しているYouTube補完データを統合
+    const mergedMap = new Map();
 
-    if (mode === 'creator' && query.trim()) {
-      const targetQuery = query.trim().toLowerCase();
+    // 先にVocaDBのアイテムを登録
+    vocaItems.forEach((item: any) => {
+      mergedMap.set(String(item.id), item);
+    });
 
-      allItems = allItems.filter((item: any) => {
-        const isYouTubeItem = String(item.id).startsWith('yt_');
-        if (isYouTubeItem) return true;
-
-        const credits = item.credits || [];
-        const artists = item.artists || [];
-        const artistString = (item.artistString || '').toLowerCase();
-        const title = (item.title || '').toLowerCase();
-
-        const nameMatched = credits.some((c: any) => (c.creatorName || '').toLowerCase().includes(targetQuery)) ||
-                            artists.some((a: any) => (a.name || '').toLowerCase().includes(targetQuery)) ||
-                            artistString.includes(targetQuery) ||
-                            title.includes(targetQuery);
-
-        if (!nameMatched) return false;
-
-        if (role && role !== 'all') {
-          const hasExactRole = credits.some((c: any) => 
-            c.role === role && (c.creatorName || '').toLowerCase().includes(targetQuery)
-          ) || artists.some((a: any) => {
-            const aName = (a.name || '').toLowerCase();
-            const aRoles = a.roles || [];
-            const matchesName = aName.includes(targetQuery);
-            const targetDbRole = VOCADB_ROLE_MAP[role];
-            const matchesRole = targetDbRole ? aRoles.includes(targetDbRole) : true;
-            return matchesName && matchesRole;
-          });
-
-          return hasExactRole;
-        }
-
-        return true;
+    // YouTubeアイテムを統合（重複チェック）
+    ytItems.forEach((ytItem: any) => {
+      const foundDuplicate = Array.from(mergedMap.values()).some((v: any) => {
+        const vYtId = v.youtubeId || (v.pvs || []).find((p: any) => p.service === 'Youtube')?.pvId;
+        return vYtId && vYtId === ytItem.youtubeId;
       });
-    }
 
+      if (!foundDuplicate) {
+        mergedMap.set(ytItem.id, ytItem);
+      }
+    });
+
+    const allItems = Array.from(mergedMap.values());
     const totalCount = vocaData.totalCount > 0 ? vocaData.totalCount : allItems.length;
 
     return NextResponse.json(
