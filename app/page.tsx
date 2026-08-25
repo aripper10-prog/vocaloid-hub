@@ -65,7 +65,8 @@ function HomeContent() {
   const { theme, toggleTheme } = useTheme();
 
   const urlMode = (searchParams.get('mode') as 'song' | 'creator') || 'song';
-  const urlQuery = searchParams.get('q') || '';
+  // API側が 'query' で受け取るため、URL上のクエリパラメータも 'query' に統一
+  const urlQuery = searchParams.get('query') || searchParams.get('q') || '';
   const urlRole = searchParams.get('role') || 'all';
   const urlArtistId = searchParams.get('artistId') || '';
   const urlPage = parseInt(searchParams.get('page') || '1', 10);
@@ -165,7 +166,7 @@ function HomeContent() {
     if (!q) {
       handleResetAll();
     } else {
-      router.push(`/?mode=song&q=${encodeURIComponent(q)}&songType=${urlSongType}&page=1`);
+      router.push(`/?mode=song&query=${encodeURIComponent(q)}&songType=${urlSongType}&page=1`);
     }
   };
 
@@ -177,7 +178,7 @@ function HomeContent() {
     if (!q) {
       handleResetAll();
     } else {
-      router.push(`/?mode=creator&q=${encodeURIComponent(q)}&role=${urlRole}&page=1`);
+      router.push(`/?mode=creator&query=${encodeURIComponent(q)}&role=${urlRole}&page=1`);
     }
   };
 
@@ -186,7 +187,7 @@ function HomeContent() {
     setCreatorQueryInput(artist.name);
     setSongQueryInput('');
     router.push(
-      `/?mode=creator&artistId=${artist.id}&q=${encodeURIComponent(artist.name)}&role=${urlRole}&page=1`
+      `/?mode=creator&artistId=${artist.id}&query=${encodeURIComponent(artist.name)}&role=${urlRole}&page=1`
     );
   };
 
