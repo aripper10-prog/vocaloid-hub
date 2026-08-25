@@ -67,7 +67,6 @@ function HomeContent() {
   const urlMode = (searchParams.get('mode') as 'song' | 'creator') || 'song';
   const urlQuery = searchParams.get('query') || searchParams.get('q') || '';
   
-  // ★ 職域フィルター（role）はサーバーに送らず、画面側のステート（手元フィルタ）として管理
   const urlRole = searchParams.get('role') || 'all';
   const [selectedRole, setSelectedRole] = useState(urlRole);
 
@@ -87,7 +86,6 @@ function HomeContent() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestBoxRef = useRef<HTMLDivElement>(null);
 
-  // URLの role が変わったらステート側も同期
   useEffect(() => {
     setSelectedRole(urlRole);
   }, [urlRole]);
@@ -145,7 +143,6 @@ function HomeContent() {
             ? 'Original'
             : 'Original,Cover,Remix,Other,MusicPV';
 
-        // ★ APIには role を渡さず、全件（またはそのクリエイター・曲の全リスト）を取得させる
         const result = await searchVocaDBSongs(
           urlQuery,
           urlMode,
@@ -153,7 +150,7 @@ function HomeContent() {
           urlPage,
           PAGE_SIZE,
           currentArtistId,
-          'all', // サーバー側でのrole絞り込みは行わない
+          'all',
           songTypesParam
         );
 
@@ -264,7 +261,6 @@ function HomeContent() {
     router.replace(`/?${params.toString()}`);
   };
 
-  // ★ 職域フィルターの変更は、APIを叩き直さず「手元のステート変更」だけで瞬時に行う
   const handleRoleChange = (role: string) => {
     setSelectedRole(role);
     const params = new URLSearchParams(searchParams.toString());
@@ -283,17 +279,30 @@ function HomeContent() {
     setSort(newSort);
   };
 
-  // --- ★ 手元（メモリ上）での完全な高速フィルタリング ---
+  // --- ★ 厳格な手元（メモリ上）フィルタリング ---
   const filteredSongs = songs.filter((song) => {
-    // 1. 職域（role）による手元フィルタリング
+    // 1. クリエイター名クエリによるマッチング
+    let nameMatched = true;
+    if (urlMode === 'creator' && urlQuery.trim()) {
+      const queryLower = urlQuery.trim().toLowerCase();
+      const hasMatchingCreator = (song.credits || []).some((c) => 
+        (c.creatorName || '').toLowerCase().includes(queryLower)
+      );
+      const hasMatchingArtist = (song.artistString || '').toLowerCase().includes(queryLower);
+      const hasMatchingTitle = (song.title || '').toLowerCase().includes(queryLower);
+
+      nameMatched = hasMatchingCreator || hasMatchingArtist || hasMatchingTitle;
+    }
+
+    if (!nameMatched) return false;
+
+    // 2. 職域（role）による厳格な絞り込み
     if (selectedRole !== 'all') {
       const credits = song.credits || [];
       const artists = song.artists || [];
       
       const matchCreditRole = credits.some((c: any) => c.role === selectedRole);
       
-      // VocaDB公式の英語ロール対応チェック
-      const targetDbRole = ROLE_CONFIG[selectedRole] ? ROLE_CONFIG[selectedRole].label : '';
       const matchArtistRole = artists.some((a: any) => {
         const aRoles = a.roles || [];
         if (selectedRole === 'music' && (aRoles.includes('Composer') || aRoles.includes('Arranger'))) return true;
@@ -306,21 +315,10 @@ function HomeContent() {
         return false;
       });
 
+      // そのロールに合致しないものは容赦なく除外する
       if (!matchCreditRole && !matchArtistRole) {
         return false;
       }
-    }
-
-    // 2. クリエイター名クエリによる追加フィルタリング（必要に応じて）
-    if (urlMode === 'creator' && urlQuery.trim()) {
-      const queryLower = urlQuery.trim().toLowerCase();
-      const hasMatchingCreator = (song.credits || []).some((c) => 
-        (c.creatorName || '').toLowerCase().includes(queryLower)
-      );
-      const hasMatchingArtist = (song.artistString || '').toLowerCase().includes(queryLower);
-      const hasMatchingTitle = (song.title || '').toLowerCase().includes(queryLower);
-
-      return hasMatchingCreator || hasMatchingArtist || hasMatchingTitle;
     }
 
     return true;
