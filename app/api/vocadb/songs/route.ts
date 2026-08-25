@@ -1,18 +1,31 @@
 import { NextResponse } from 'next/server';
 
+const VOCADB_ROLE_MAP: Record<string, string> = {
+  music: 'Composer',
+  lyrics: 'Lyricist',
+  tuning: 'VoiceManipulator',
+  illust: 'Illustrator',
+  movie: 'Animator',
+  mix: 'Mixer',
+  singer: 'Vocalist',
+  dance: 'Other',
+};
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('query') || '';
+    const mode = searchParams.get('mode') || 'song';
     const sort = searchParams.get('sort') || 'PublishDate';
     const maxResults = searchParams.get('maxResults') || '48';
     const start = searchParams.get('start') || '0';
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
+    const role = searchParams.get('role');
 
     let items: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
 
-    // --- 1. YouTube Data API検索（YouTube側の作品を回収） ---
+    // --- 1. YouTube検索：余計なヒットを防ぐ「完全一致」 ---
     if (query.trim() && apiKey) {
       try {
         const exactQuery = `"${query.trim()}"`;
@@ -63,7 +76,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 2. VocaDB / ニコニコ連携検索（もともと動いていたニコニコ等の作品を回収） ---
+    // --- 2. VocaDB検索：カスリ傷でも広範囲に拾う「あいまい・柔軟検索」 ---
     try {
       const vocaParams = new URLSearchParams({
         sort: sort,
@@ -76,9 +89,13 @@ export async function GET(request: Request) {
       });
 
       if (query.trim()) {
-        // VocaDB側にはダブルクォーテーションを付けず、通常の柔軟な検索として投げる
+        // VocaDB側はあえて完全一致にせず、かすったデータも引っ張るために通常のAutoマッチにする
         vocaParams.set('query', query.trim());
         vocaParams.set('nameMatchMode', 'Auto');
+      }
+
+      if (role && VOCADB_ROLE_MAP[role]) {
+        vocaParams.append('artistRole', VOCADB_ROLE_MAP[role]);
       }
 
       const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
@@ -94,14 +111,14 @@ export async function GET(request: Request) {
         const vocaData = await vocaRes.json();
         const vocaItems = vocaData.items || [];
 
-        // IDの重複を防ぎながら、YouTubeの結果とニコニコ（VocaDB）の結果を合体
-        const existingIds = new Set(items.map(item => item.id));
+        // IDの重複を防ぎながら、YouTubeの結果とVocaDB（ニコニコPV等）の結果を合体
+        const existingIds = new Set(items.map((item) => String(item.id)));
         const uniqueVocaItems = vocaItems.filter((v: any) => !existingIds.has(String(v.id)));
 
         items = [...items, ...uniqueVocaItems];
       }
     } catch (vocaErr) {
-      console.error('VocaDB/Nico fetch error:', vocaErr);
+      console.error('VocaDB fetch error:', vocaErr);
     }
 
     return NextResponse.json(
