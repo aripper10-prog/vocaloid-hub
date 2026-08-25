@@ -2,7 +2,7 @@ export interface VocaDBCredit {
   role: string;
   creatorName: string;
   isHumanSinger?: boolean;
-  artistId?: string | number; // ★このプロパティを追加
+  artistId?: string | number;
 }
 
 export interface VocaDBSong {
@@ -66,8 +66,11 @@ export async function searchVocaDBSongs(
 
     const data = await res.json();
     
+    // ★ artists や credits が未定義でも絶対に落ちないよう配列を保証する
     const items = (data.items || []).map((song: any) => ({
       ...song,
+      artists: Array.isArray(song.artists) ? song.artists : [],
+      credits: Array.isArray(song.credits) ? song.credits : [],
       artistString:
         song.artistString ||
         (song.artists ? song.artists.map((a: any) => a.name).join(', ') : 'Unknown Artist'),
@@ -98,14 +101,14 @@ export async function searchVocaDBArtists(query: string): Promise<VocaDBArtist[]
   }
 }
 
-// 楽曲詳細取得（型エラーを回避する安全な定義）
+// 楽曲詳細取得（配列プロパティを完全保証してクラッシュを防止）
 export async function getVocaDBSongDetail(id: string): Promise<any> {
   try {
     if (id.startsWith('yt_')) {
       return null;
     }
 
-    const res = await fetch(`https://vocadb.net/api/songs/${id}?fields=Artists,PVs,ThumbUrl`, {
+    const res = await fetch(`https://vocadb.net/api/songs/${id}?fields=Artists,PVs,ThumbUrl,Tags`, {
       headers: {
         Accept: 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VocaHub/1.0',
@@ -119,18 +122,17 @@ export async function getVocaDBSongDetail(id: string): Promise<any> {
     const formattedSong: VocaDBSong = {
       id: String(song.id),
       title: song.name,
-      artists: song.artists ? song.artists.map((a: any) => ({ name: a.name })) : [],
+      artists: Array.isArray(song.artists) ? song.artists.map((a: any) => ({ name: a.name })) : [],
       artistString: song.artistString,
       songType: song.songType,
       thumbUrl: song.thumbUrl || (song.pvs && song.pvs[0] ? song.pvs[0].thumbUrl : undefined),
       publishDate: song.publishDate,
       youtubeId: song.pvs?.find((p: any) => p.service === 'Youtube')?.pvId,
       niconicoId: song.pvs?.find((p: any) => p.service === 'NicoNicoDouga')?.pvId,
-      credits: [],
+      credits: [], // フロントが .length を叩いても落ちないよう空配列を保証
       viewCount: 0,
     };
 
-    // page.tsxの `data.song` と `data`（直接データ）の両方に対応できるようにする
     return {
       song: formattedSong,
       ...formattedSong,
