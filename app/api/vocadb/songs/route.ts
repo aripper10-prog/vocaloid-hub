@@ -135,7 +135,9 @@ export async function GET(request: Request) {
           const aData = await aRes.json();
           const items = aData.items || [];
           if (items.length > 0) {
-            artistId = String(items[0].id);
+            // ボカロP（Producer）を最優先で選ぶ
+            const matchedArtist = items.find((a: any) => (a.artistType || '').toLowerCase() === 'producer') || items[0];
+            artistId = String(matchedArtist.id);
           }
         }
       } catch (e) {
@@ -146,7 +148,6 @@ export async function GET(request: Request) {
     // --- 2. VocaDB楽曲検索の実行 ---
     let vocaData: any = { items: [], totalCount: 0 };
     try {
-      // 検索ボタン押下時などで artistId が抜けていても、rawQuery があればここで自動解決するフォールバック
       if (!artistId && rawQuery.trim() && mode === 'creator') {
         try {
           const fallbackUrl = `[https://vocadb.net/api/artists?query=$](https://vocadb.net/api/artists?query=$){encodeURIComponent(
@@ -165,7 +166,8 @@ export async function GET(request: Request) {
             const fData = await fRes.json();
             const fItems = fData.items || [];
             if (fItems.length > 0) {
-              artistId = String(fItems[0].id);
+              const matchedFallback = fItems.find((a: any) => (a.artistType || '').toLowerCase() === 'producer') || fItems[0];
+              artistId = String(matchedFallback.id);
             }
           }
         } catch (fErr) {
@@ -200,7 +202,7 @@ export async function GET(request: Request) {
         vocaParams.set('childTags', 'true');
       }
 
-const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
+      const vocaUrl = `[https://vocadb.net/api/songs?$](https://vocadb.net/api/songs?$){vocaParams.toString()}`;
       console.log('🌐 VocaDB API Request:', vocaUrl);
 
       const vocaRes = await fetch(vocaUrl, {
@@ -371,7 +373,10 @@ const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
       });
     }
 
-    const totalCount = allItems.length;
+    // ★ 修正：VocaDBが元々持っている正確な全体のヒット総数（vocaData.totalCount）を優先して返す！
+    const totalCount = typeof vocaData.totalCount === 'number' && vocaData.totalCount > 0 
+      ? vocaData.totalCount 
+      : allItems.length;
 
     return NextResponse.json(
       {
