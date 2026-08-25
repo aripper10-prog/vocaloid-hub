@@ -346,13 +346,19 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 4. 統合 ＆ 職域・曲名フィルター ---
+    // --- 4. 統合 ＆ 柔軟なフィルター ---
     let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
     
-    if (mode === 'creator' && rawQuery.trim() && !artistId) {
+    if (rawQuery.trim() && !artistId) {
       const targetQuery = rawQuery.trim().toLowerCase();
 
       allItems = allItems.filter((item: any) => {
+        const isYouTubeItem = String(item.id).startsWith('yt_');
+        // YouTube由来のアイテムはGeminiがすでに判定済みなので通す
+        if (isYouTubeItem) {
+          return true;
+        }
+
         const credits = item.credits || [];
         const artists = item.artists || [];
         const artistString = (item.artistString || '').toLowerCase();
