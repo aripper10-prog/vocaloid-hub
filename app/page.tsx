@@ -158,7 +158,7 @@ function HomeContent() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleSongSearch = (e: React.FormEvent) => {
+ const handleSongSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setCreatorQueryInput('');
     setShowSuggestions(false);
@@ -170,16 +170,33 @@ function HomeContent() {
     }
   };
 
-  const handleCreatorSearch = (e: React.FormEvent) => {
+  // ★ 検索ボタンを押したときにも、自動でアーティストIDを引いてから遷移するように強化
+  const handleCreatorSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setSongQueryInput('');
     setShowSuggestions(false);
     const q = creatorQueryInput.trim();
     if (!q) {
       handleResetAll();
-    } else {
-      router.push(`/?mode=creator&query=${encodeURIComponent(q)}&role=${urlRole}&page=1`);
+      return;
     }
+
+    try {
+      // 検索ボタン押下時、その場でVocaDBのアーティスト検索を叩いてIDを確実に取得する
+      const res = await searchVocaDBArtists(q);
+      if (res && res.length > 0) {
+        const matched = res[0]; // 最も一致度の高いアーティストを採用
+        router.push(
+          `/?mode=creator&artistId=${matched.id}&query=${encodeURIComponent(matched.name)}&role=${urlRole}&page=1`
+        );
+        return;
+      }
+    } catch (err) {
+      console.error('Artist search on submit error:', err);
+    }
+
+    // 万が一IDが引けなかった場合のフォールバック
+    router.push(`/?mode=creator&query=${encodeURIComponent(q)}&role=${urlRole}&page=1`);
   };
 
   const handleSelectArtist = (artist: VocaDBArtist) => {
@@ -190,7 +207,6 @@ function HomeContent() {
       `/?mode=creator&artistId=${artist.id}&query=${encodeURIComponent(artist.name)}&role=${urlRole}&page=1`
     );
   };
-
   const handleResetAll = () => {
     setSongQueryInput('');
     setCreatorQueryInput('');
