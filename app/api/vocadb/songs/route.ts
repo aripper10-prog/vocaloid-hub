@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
 
 const VOCADB_ROLE_MAP: Record<string, string> = {
   music: 'Composer',
@@ -12,14 +11,13 @@ const VOCADB_ROLE_MAP: Record<string, string> = {
   dance: 'Other',
 };
 
-// YouTube検索を発動させるキーワードの判定
 function shouldSearchYouTube(query: string): boolean {
   const q = query.trim().toLowerCase();
   const personalKeywords = ['作詞師ari', 'ari', 'alice and lemonade'];
   return personalKeywords.some((keyword) => q.includes(keyword));
 }
 
-// Gemini APIを使った高精度クレジット抽出
+// Gemini APIを標準 fetch で直接叩いてクレジットを抽出
 async function parseCreditsWithGemini(description: string = '', channelTitle: string = '', query: string = ''): Promise<Array<{ role: string; creatorName: string }>> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || !description.trim()) {
@@ -30,7 +28,6 @@ async function parseCreditsWithGemini(description: string = '', channelTitle: st
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
     const prompt = `
 以下のYouTube動画の概要欄とチャンネル名から、音楽制作に関わったクリエイターのクレジットを抽出し、JSONの配列形式でのみ出力してください。
 
@@ -58,17 +55,23 @@ ${description}
 ]
 `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }]
+      }),
     });
 
-    const text = response.text?.trim() || '[]';
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanJson);
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '[]';
+      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanJson);
 
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
     }
   } catch (e) {
     console.error('Gemini credit parsing error:', e);
@@ -93,7 +96,6 @@ export async function GET(request: Request) {
     const role = searchParams.get('role');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
-    // --- 1. クリエイター検索モード時: アーティストIDの自動解決 ---
     if (mode === 'creator' && query.trim() && !artistId) {
       try {
         const artistSearchUrl = `https://vocadb.net/api/artists?query=${encodeURIComponent(
@@ -133,12 +135,9 @@ export async function GET(request: Request) {
             artistId = String(items[0].id);
           }
         }
-      } catch (e) {
-        // ID解決失敗時はquery検索へフォールバック
-      }
+      } catch (e) {}
     }
 
-    // --- 2. VocaDB楽曲検索の実行 ---
     let vocaData: any = { items: [], totalCount: 0 };
     try {
       const vocaParams = new URLSearchParams({
@@ -198,7 +197,6 @@ export async function GET(request: Request) {
       artistString: item.artistString || '',
     }));
 
-    // --- 3. YouTube検索の統合判定 ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
     const isPersonalQuery = shouldSearchYouTube(query);
@@ -226,7 +224,6 @@ export async function GET(request: Request) {
             const detailsData = await detailsRes.json();
 
             if (detailsData.items && Array.isArray(detailsData.items)) {
-              // 各動画の概要欄をGeminiで並行パース
               ytItems = await Promise.all(
                 detailsData.items.map(async (item: any) => {
                   const channelTitle = item.snippet?.channelTitle || 'Unknown';
@@ -279,7 +276,6 @@ export async function GET(request: Request) {
       }
     }
 
-    // 重複を除外してマージ
     const existingIds = new Set(vocaItems.map((item: any) => String(item.id)));
     const uniqueYtItems = ytItems.filter((yt: any) => !existingIds.has(String(yt.id)));
 
