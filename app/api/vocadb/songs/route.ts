@@ -43,33 +43,22 @@ async function parseCreditsAndRelevanceWithGemini(
   }
 
   try {
-    const prompt = `
-以下の情報はYouTube動画のメタデータです。
-検索クエリ: "${query}"
-チャンネル名: "${channelTitle}"
-概要欄:
-${safeDescription}
+    const prompt = 
+      '以下の情報はYouTube動画のメタデータです。\n' +
+      '検索クエリ: "' + query + '"\n' +
+      'チャンネル名: "' + channelTitle + '"\n' +
+      '概要欄:\n' + safeDescription + '\n\n' +
+      '【タスク1：関連度判定 (isRelevant)】\n' +
+      'この動画は、検索クエリ "' + query + '" に関連する音楽作品、あるいは関係するクリエイター（本人や関連アーティスト）の動画と言えますか？\n' +
+      '全く関係のない動画（例: 検索ワードと無関係な有名アーティストの公式MVや、単なるレコメンド違いなど）である場合は false、関連している場合は true にしてください。\n\n' +
+      '【タスク2：クレジット抽出 (credits)】\n' +
+      '音楽制作に関わったクリエイターのクレジットを抽出してください。\n' +
+      '使用可能な8種類のロール: "music", "lyrics", "tuning", "singer", "mix", "illust", "movie", "dance"\n\n' +
+      '【出力形式の指定】\n' +
+      '余計な挨拶やマークダウンは一切含めず、純粋なJSON形式のみを返してください。\n' +
+      '{\n  "isRelevant": true,\n  "credits": [\n    {"role": "lyrics", "creatorName": "〇〇"}\n  ]\n}';
 
-【タスク1：関連度判定 (isRelevant)】
-この動画は、検索クエリ "${query}" に関連する音楽作品、あるいは関係するクリエイター（本人や関連アーティスト）の動画と言えますか？
-全く関係のない動画（例: 検索ワードと無関係な有名アーティストの公式MVや、単なるレコメンド違いなど）である場合は false、関連している（または本人の作品・カバー・関連曲の可能性が高い）場合は true にしてください。
-
-【タスク2：クレジット抽出 (credits)】
-音楽制作に関わったクリエイターのクレジットを抽出してください。
-使用可能な8種類のロール: "music", "lyrics", "tuning", "singer", "mix", "illust", "movie", "dance"
-
-【出力形式の指定】
-余計な挨拶やマークダウンのバッククォートは一切含めず、純粋なJSON形式のみを返してください。例：
-{
-  "isRelevant": true,
-  "credits": [
-    {"role": "lyrics", "creatorName": "作詞師ari"},
-    {"role": "music", "creatorName": "〇〇"}
-  ]
-}
-`;
-
-    const res = await fetch(`[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$){apiKey}`, {
+    const res = await fetch('[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=)' + apiKey, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -110,7 +99,6 @@ ${safeDescription}
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const query = searchParams.get('query') || searchParams.get('q') || '';
     const rawQuery = searchParams.get('query') || '';
     const mode = searchParams.get('mode') || 'song';
     const sort = searchParams.get('sort') || 'PublishDate';
@@ -124,9 +112,7 @@ export async function GET(request: Request) {
     // --- 1. クリエイター検索モード時: アーティストIDの確実な自動解決 ---
     if (mode === 'creator' && rawQuery.trim() && !artistId) {
       try {
-        const artistSearchUrl = `[https://vocadb.net/api/artists?query=$](https://vocadb.net/api/artists?query=$){encodeURIComponent(
-          rawQuery.trim()
-        )}&nameMatchMode=Auto&maxResults=5&lang=Japanese`;
+        const artistSearchUrl = '[https://vocadb.net/api/artists?query=](https://vocadb.net/api/artists?query=)' + encodeURIComponent(rawQuery.trim()) + '&nameMatchMode=Auto&maxResults=5&lang=Japanese';
 
         const aController = new AbortController();
         const aTimer = setTimeout(() => aController.abort(), 2500);
@@ -158,9 +144,7 @@ export async function GET(request: Request) {
     try {
       if (!artistId && rawQuery.trim() && mode === 'creator') {
         try {
-          const fallbackUrl = `[https://vocadb.net/api/artists?query=$](https://vocadb.net/api/artists?query=$){encodeURIComponent(
-            rawQuery.trim()
-          )}&nameMatchMode=Auto&maxResults=5&lang=Japanese`;
+          const fallbackUrl = '[https://vocadb.net/api/artists?query=](https://vocadb.net/api/artists?query=)' + encodeURIComponent(rawQuery.trim()) + '&nameMatchMode=Auto&maxResults=5&lang=Japanese';
 
           const fRes = await fetch(fallbackUrl, {
             headers: {
@@ -210,7 +194,7 @@ export async function GET(request: Request) {
         vocaParams.set('childTags', 'true');
       }
 
-      const vocaUrl = `[https://vocadb.net/api/songs?$](https://vocadb.net/api/songs?$){vocaParams.toString()}`;
+      const vocaUrl = '[https://vocadb.net/api/songs](https://vocadb.net/api/songs)?' + vocaParams.toString();
       console.log('🌐 VocaDB API Request:', vocaUrl);
 
       const vocaRes = await fetch(vocaUrl, {
@@ -277,9 +261,7 @@ export async function GET(request: Request) {
     if (shouldFetchYT) {
       try {
         const ytQuery = rawQuery.trim();
-        const ytUrl = `[https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=$](https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=$){encodeURIComponent(
-          ytQuery
-        )}&maxResults=20&key=${apiKey}`;
+        const ytUrl = '[https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=](https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=)' + encodeURIComponent(ytQuery) + '&maxResults=20&key=' + apiKey;
 
         const ytRes = await fetch(ytUrl);
         const ytData = await ytRes.json();
@@ -291,12 +273,11 @@ export async function GET(request: Request) {
             .join(',');
 
           if (videoIds) {
-            const detailsUrl = `[https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=$](https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=$){videoIds}&key=${apiKey}`;
+            const detailsUrl = '[https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=](https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=)' + videoIds + '&key=' + apiKey;
             const detailsRes = await fetch(detailsUrl);
             const detailsData = await detailsRes.json();
 
             if (detailsData.items && Array.isArray(detailsData.items)) {
-              // Geminiによる「関連度判定 ＆ クレジット抽出」を各動画ごとに実行
               const mappedYtItems = await Promise.all(
                 detailsData.items.map(async (item: any) => {
                   const channelTitle = item.snippet?.channelTitle || 'Unknown';
@@ -304,13 +285,12 @@ export async function GET(request: Request) {
                   
                   const { credits: parsedCredits, isRelevant } = await parseCreditsAndRelevanceWithGemini(description, channelTitle, rawQuery);
 
-                  // 関連度が false（無関係なノイズ作品）と判定された場合は除外する
                   if (!isRelevant) {
                     return null;
                   }
 
                   return {
-                    id: `yt_${item.id}`,
+                    id: 'yt_' + item.id,
                     title: item.snippet?.title || 'Untitled',
                     artists: [
                       {
@@ -327,7 +307,7 @@ export async function GET(request: Request) {
                     pvs: [
                       {
                         service: 'Youtube',
-                        url: `[https://www.youtube.com/watch?v=$](https://www.youtube.com/watch?v=$){item.id}`,
+                        url: '[https://www.youtube.com/watch?v=](https://www.youtube.com/watch?v=)' + item.id,
                         pvId: item.id,
                       },
                     ],
@@ -347,7 +327,6 @@ export async function GET(request: Request) {
                 })
               );
 
-              // null（ノイズ判定で弾かれたもの）を除外
               ytItems = mappedYtItems.filter(Boolean);
             }
           }
