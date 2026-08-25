@@ -112,10 +112,10 @@ export async function GET(request: Request) {
     const role = searchParams.get('role');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
-    // --- 1. クリエイター検索モード時: VocaDBのAPI判断力に任せた柔軟なアーティストID解決 ---
+   // --- 1. クリエイター検索モード時: アーティストIDの確実な自動解決 ---
     if (mode === 'creator' && rawQuery.trim() && !artistId) {
       try {
-        const artistSearchUrl = `[https://vocadb.net/api/artists?query=$](https://vocadb.net/api/artists?query=$){encodeURIComponent(
+        const artistSearchUrl = `https://vocadb.net/api/artists?query=${encodeURIComponent(
           rawQuery.trim()
         )}&nameMatchMode=Auto&maxResults=5&lang=Japanese`;
 
@@ -134,7 +134,6 @@ export async function GET(request: Request) {
         if (aRes.ok) {
           const aData = await aRes.json();
           const items = aData.items || [];
-          // 辞書を使わず、VocaDBのAPIが返してきた最初の候補（最も関連度が高いとAPIが判断したもの）を自動採用
           if (items.length > 0) {
             artistId = String(items[0].id);
           }
@@ -157,79 +156,17 @@ export async function GET(request: Request) {
         songTypes: songTypes,
       });
 
-      if (mode === 'song' && rawQuery.trim()) {
-        vocaParams.set('query', rawQuery.trim());
-        vocaParams.set('nameMatchMode', 'Partial');
-      } else if (artistId && !isNaN(Number(artistId))) {
+      // ★ 最重要修正：mode === 'creator' の場合は、artistIdが取れていれば必ずIDで絞り込む！
+      if (mode === 'creator' && artistId && !isNaN(Number(artistId))) {
         vocaParams.append('artistId[]', artistId);
         vocaParams.set('artistParticipationStatus', 'Everything');
+      } else if (mode === 'song' && rawQuery.trim()) {
+        vocaParams.set('query', rawQuery.trim());
+        vocaParams.set('nameMatchMode', 'Partial');
       } else if (rawQuery.trim()) {
         vocaParams.set('query', rawQuery.trim());
         vocaParams.set('nameMatchMode', 'Partial');
       }
-
-      if (role && role !== 'all' && VOCADB_ROLE_MAP[role]) {
-        vocaParams.append('artistRole', VOCADB_ROLE_MAP[role]);
-      }
-
-      if (parentVersionId && !isNaN(Number(parentVersionId))) {
-        vocaParams.set('parentVersionId', parentVersionId);
-        vocaParams.set('childTags', 'true');
-      }
-
-    const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
-      console.log('🌐 VocaDB API Request:', vocaUrl);
-
-      const vocaRes = await fetch(vocaUrl, {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VocaHub/1.0',
-        },
-        cache: 'no-store',
-      });
-
-      if (vocaRes.ok) {
-        vocaData = await vocaRes.json();
-      }
-    } catch (vocaErr) {
-      console.error('VocaDB fetch error:', vocaErr);
-    }
-
-    const vocaItems = (vocaData.items || []).map((item: any) => {
-      const youtubePv = (item.pvs || []).find((p: any) => p.service === 'Youtube');
-      const niconicoPv = (item.pvs || []).find((p: any) => p.service === 'NicoNicoDouga');
-
-      const mappedCredits = (item.artists || []).map((art: any) => {
-        const roles = art.roles || [];
-        let derivedRole = 'music';
-        if (roles.includes('Lyricist')) derivedRole = 'lyrics';
-        else if (roles.includes('Composer')) derivedRole = 'music';
-        else if (roles.includes('Vocalist')) derivedRole = 'singer';
-        else if (roles.includes('Mixer')) derivedRole = 'mix';
-        else if (roles.includes('Illustrator')) derivedRole = 'illust';
-        else if (roles.includes('Animator')) derivedRole = 'movie';
-        else if (roles.includes('VoiceManipulator')) derivedRole = 'tuning';
-
-        return {
-          role: derivedRole,
-          creatorName: art.name || art.artist?.name || 'Unknown',
-        };
-      });
-
-      return {
-        ...item,
-        title: item.name || item.title || 'Untitled',
-        thumbUrl: item.thumbUrl || youtubePv?.thumbUrl || niconicoPv?.thumbUrl || '',
-        youtubeId: youtubePv?.pvId || item.youtubeId,
-        niconicoId: niconicoPv?.pvId || item.niconicoId,
-        artists: Array.isArray(item.artists) ? item.artists : [],
-        pvs: Array.isArray(item.pvs) ? item.pvs : [],
-        tags: Array.isArray(item.tags) ? item.tags : [],
-        credits: mappedCredits.length > 0 ? mappedCredits : (Array.isArray(item.credits) ? item.credits : []),
-        artistString: item.artistString || '',
-      };
-    });
-
     // --- 3. YouTube検索の統合判定 ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
