@@ -254,25 +254,24 @@ const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
         artistString: item.artistString || '',
       };
     });
-// --- 3. YouTube検索の統合判定（VocaDBにない曲もYouTubeから必ず発掘する） ---
+// --- 3. YouTube検索の統合判定 ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
     const isPersonalQuery = shouldSearchYouTube(rawQuery);
-
-    // ★ 修正：
-    // 1. クエリが入力されており、YouTube APIキーがある
-    // 2. 「VocaDBの結果が0件」または「個人キーワードが含まれる」または「クリエイター検索モードである」
-    // このいずれかに該当すれば、必ずYouTube検索を走らせる！
+    
+    // VocaDBで引っかからなかった場合、または個人キーワード、またはクリエイター検索のときのみYouTubeを叩く
     const shouldFetchYT = Boolean(
       rawQuery.trim() && 
       apiKey && 
-      (vocaItems.length === 0 || isPersonalQuery || mode === 'creator' || mode === 'song')
+      (vocaItems.length === 0 || isPersonalQuery || mode === 'creator')
     );
+
     if (shouldFetchYT) {
       try {
-        const exactQuery = `"${rawQuery.trim()}"`;
-        const ytUrl = `[https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=$](https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=$){encodeURIComponent(
-          exactQuery
+        // ダブルクォーテーションを外し、柔軟にYouTube上の動画をヒットさせる
+        const ytQuery = rawQuery.trim();
+        const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
+          ytQuery
         )}&maxResults=20&key=${apiKey}`;
 
         const ytRes = await fetch(ytUrl);
@@ -285,7 +284,7 @@ const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
             .join(',');
 
           if (videoIds) {
-            const detailsUrl = `[https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=$](https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=$){videoIds}&key=${apiKey}`;
+            const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoIds}&key=${apiKey}`;
             const detailsRes = await fetch(detailsUrl);
             const detailsData = await detailsRes.json();
 
@@ -315,7 +314,7 @@ const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
                     pvs: [
                       {
                         service: 'Youtube',
-                        url: `[https://www.youtube.com/watch?v=$](https://www.youtube.com/watch?v=$){item.id}`,
+                        url: `https://www.youtube.com/watch?v=${item.id}`,
                         pvId: item.id,
                       },
                     ],
