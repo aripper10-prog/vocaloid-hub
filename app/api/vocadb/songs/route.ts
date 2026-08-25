@@ -169,10 +169,10 @@ export async function GET(request: Request) {
         songTypes: songTypes,
       });
 
-      // 曲名検索または入力されたクエリがある場合は最優先でセット
+// 曲名検索または入力されたクエリがある場合は最優先でセット
       if (rawQuery.trim()) {
         vocaParams.set('query', rawQuery.trim());
-        vocaParams.set('nameMatchMode', 'Auto');
+        vocaParams.set('nameMatchMode', 'Partial'); // より柔軟に部分一致させる
       }
 
       // クリエイターモードかつartistIdがある場合のみ適用
