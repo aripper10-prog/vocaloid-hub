@@ -279,9 +279,8 @@ function HomeContent() {
     setSort(newSort);
   };
 
-  // --- ★ 厳格な手元（メモリ上）フィルタリング ---
+  // --- ★ 手元（メモリ上）での厳格なフィルタリング ---
   const filteredSongs = songs.filter((song) => {
-    // 1. クリエイター名クエリによるマッチング
     let nameMatched = true;
     if (urlMode === 'creator' && urlQuery.trim()) {
       const queryLower = urlQuery.trim().toLowerCase();
@@ -296,7 +295,6 @@ function HomeContent() {
 
     if (!nameMatched) return false;
 
-    // 2. 職域（role）による厳格な絞り込み
     if (selectedRole !== 'all') {
       const credits = song.credits || [];
       const artists = song.artists || [];
@@ -315,7 +313,6 @@ function HomeContent() {
         return false;
       });
 
-      // そのロールに合致しないものは容赦なく除外する
       if (!matchCreditRole && !matchArtistRole) {
         return false;
       }
