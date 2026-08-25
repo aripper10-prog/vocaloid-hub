@@ -26,7 +26,7 @@ function sanitizeDescription(description: string = ''): string {
     .slice(0, 1000);
 }
 
-// クレジット抽出 ＆ 関連度判定（ノイズだけを弾く寛容なガード）
+// 厳格なノイズ判定 ＆ クレジット抽出
 async function parseCreditsWithGemini(
   description: string = '', 
   channelTitle: string = '', 
@@ -52,8 +52,9 @@ async function parseCreditsWithGemini(
       'チャンネル名: "' + channelTitle + '"\n' +
       '概要欄:\n' + safeDescription + '\n\n' +
       '【タスク1：関連度判定 (isRelevant)】\n' +
-      'この動画は、検索クエリ "' + query + '" に関連する音楽作品、あるいは関係するクリエイター（本人や関連アーティスト、個人制作など）の動画と言えますか？\n' +
-      '無関係な有名アーティストの公式MV等でない限り、できるだけ true にしてください（完全に無関係な場合のみ false）。\n\n' +
+      'この動画は、検索クエリ "' + query + '" に本当に関連する音楽作品、あるいは関係するクリエイター自身の動画と言えますか？\n' +
+      '無関係な有名アーティスト（例: 米津玄師など）の公式MVやヒット曲である場合は、検索ワードと一致していても必ず false にしてください。\n' +
+      '個人制作、ボカロ、インディーズ、同人、あるいは検索クエリの本人や関連曲である場合のみ true にしてください。\n\n' +
       '【タスク2：クレジット抽出 (credits)】\n' +
       '音楽制作に関わったクリエイターのクレジットを抽出してください。\n' +
       '使用可能な8種類のロール: "music", "lyrics", "tuning", "singer", "mix", "illust", "movie", "dance"\n\n' +
@@ -171,6 +172,7 @@ export async function GET(request: Request) {
         songTypes: songTypes,
       });
 
+      // クエリがある場合のみ設定（タグ検索時にクエリで上書きして消滅するのを防止）
       if (query.trim()) {
         vocaParams.set('query', query.trim());
         vocaParams.set('nameMatchMode', 'Auto');
@@ -248,15 +250,16 @@ export async function GET(request: Request) {
       };
     });
 
-    // --- 3. YouTube検索の統合判定（柔軟なキーワード検索に変更） ---
+    // --- 3. YouTube検索の統合判定（完全一致クエリ ＋ ボカロ・インディーズ文脈の補強でノイズ防止） ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
     const shouldFetchYT = Boolean(query.trim() && apiKey && (vocaItems.length === 0 || mode === 'creator'));
 
     if (shouldFetchYT) {
       try {
-        // 二重クォーテーションを外し、柔軟なキーワード検索にする
-        const ytUrl = API_ENDPOINTS.YOUTUBE_SEARCH + '?part=snippet&type=video&q=' + encodeURIComponent(query.trim()) + '&maxResults=20&key=' + apiKey;
+        // 完全一致クエリを維持しつつ、ノイズ（米津さん等）を弾くためのガードを強化
+        const exactQuery = '"' + query.trim() + '"';
+        const ytUrl = API_ENDPOINTS.YOUTUBE_SEARCH + '?part=snippet&type=video&q=' + encodeURIComponent(exactQuery) + '&maxResults=20&key=' + apiKey;
 
         const ytRes = await fetch(ytUrl);
         const ytData = await ytRes.json();
@@ -331,7 +334,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 4. 統合 ＆ 柔軟なフィルター ---
+    // --- 4. 統合 ＆ フィルター ---
     let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
 
     if (mode === 'creator' && query.trim()) {
