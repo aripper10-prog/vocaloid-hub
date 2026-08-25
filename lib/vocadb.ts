@@ -1,7 +1,8 @@
 export interface VocaDBCredit {
   role: string;
   creatorName: string;
-  isHumanSinger?: boolean; // ★このプロパティを追加
+  isHumanSinger?: boolean;
+  artistId?: string | number; // ★このプロパティを追加
 }
 
 export interface VocaDBSong {
