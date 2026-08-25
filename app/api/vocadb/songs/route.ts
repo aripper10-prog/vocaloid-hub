@@ -13,9 +13,8 @@ export async function GET(request: Request) {
     let totalCount = 0;
 
     const apiKey = process.env.YOUTUBE_API_KEY;
-    console.log(`[VocaHub CleanAPI] Query: "${query}", API Key exists: ${!!apiKey}`);
 
-    // 1. まず最初にYouTube Data APIを直叩きして検索する
+    // 1. YouTube Data API検索
     if (query.trim() && apiKey) {
       try {
         const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
@@ -25,11 +24,12 @@ export async function GET(request: Request) {
         const ytRes = await fetch(ytUrl);
         const ytData = await ytRes.json();
 
-        console.log(`[VocaHub CleanAPI] YouTube API Status: ${ytRes.status}, Items found: ${ytData.items?.length || 0}`);
-
         if (ytData.items && Array.isArray(ytData.items)) {
-          const videoIds = ytData.items.map((item: any) => item.id?.videoId).filter(Boolean).join(',');
-          
+          const videoIds = ytData.items
+            .map((item: any) => item.id?.videoId)
+            .filter(Boolean)
+            .join(',');
+
           if (videoIds) {
             const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoIds}&key=${apiKey}`;
             const detailsRes = await fetch(detailsUrl);
@@ -38,12 +38,12 @@ export async function GET(request: Request) {
             if (detailsData.items && Array.isArray(detailsData.items)) {
               const ytSongs = detailsData.items.map((item: any) => ({
                 id: `yt_${item.id}`,
-                title: item.snippet.title || 'Untitled',
-                artists: [{ name: item.snippet.channelTitle || 'Unknown' }],
-                artistString: item.snippet.channelTitle || 'Unknown Artist',
+                title: item.snippet?.title || 'Untitled',
+                artists: [{ name: item.snippet?.channelTitle || 'Unknown' }],
+                artistString: item.snippet?.channelTitle || 'Unknown Artist',
                 songType: 'Original',
-                thumbUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || '',
-                publishDate: item.snippet.publishedAt,
+                thumbUrl: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || '',
+                publishDate: item.snippet?.publishedAt || new Date().toISOString(),
                 youtubeId: item.id,
                 niconicoId: undefined,
                 credits: [
@@ -60,11 +60,11 @@ export async function GET(request: Request) {
           }
         }
       } catch (err) {
-        console.error('[VocaHub CleanAPI] YouTube search error:', err);
+        console.error('YouTube search error:', err);
       }
     }
 
-    // 2. 念のためVocaDBからも検索してマージ
+    // 2. VocaDB検索
     try {
       const vocaParams = new URLSearchParams({
         sort: sort,
@@ -93,31 +93,26 @@ export async function GET(request: Request) {
       if (vocaRes.ok) {
         const vocaData = await vocaRes.json();
         const vocaItems = vocaData.items || [];
-        
-        const existingYoutubeIds = new Set(items.map(item => item.youtubeId));
-        // 重複を除いてマージ
-        const uniqueVocaItems = vocaItems.filter((v: any) => {
-          // VocaDBのPVからYouTubeIDが一致するものがあれば弾くなどの処理
-          return true;
-        });
-
-        items = [...items, ...uniqueVocaItems];
+        items = [...items, ...vocaItems];
         totalCount = items.length;
       }
     } catch (vocaErr) {
-      console.error('[VocaHub CleanAPI] VocaDB fetch error:', vocaErr);
+      console.error('VocaDB fetch error:', vocaErr);
     }
 
-    return NextResponse.json({
-      items,
-      totalCount: totalCount || items.length,
-    }, {
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
+    return NextResponse.json(
+      {
+        items,
+        totalCount: totalCount || items.length,
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
       }
-    });
+    );
   } catch (error) {
-    console.error('[VocaHub CleanAPI] Fatal error:', error);
+    console.error('Fatal error:', error);
     return NextResponse.json({ items: [], totalCount: 0 }, { status: 200 });
   }
 }
