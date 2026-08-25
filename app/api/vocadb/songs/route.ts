@@ -102,7 +102,7 @@ async function parseCreditsWithGemini(
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const query = searchParams.get('query'] || searchParams.get('q') || '';
+    const query = searchParams.get('query') || searchParams.get('q') || ''; // ← 修正完了
     const mode = searchParams.get('mode') || 'song';
     const sort = searchParams.get('sort') || 'PublishDate';
     const maxResults = searchParams.get('maxResults') || '48';
@@ -112,7 +112,6 @@ export async function GET(request: Request) {
     const role = searchParams.get('role');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
-    // ★ 追加：タグ検索用のパラメータ（tagId, tag）をフロントエンドから正しく受け取る
     const tagId = searchParams.get('tagId');
     const tag = searchParams.get('tag');
 
@@ -182,7 +181,6 @@ export async function GET(request: Request) {
         vocaParams.set('artistParticipationStatus', 'Everything');
       }
 
-      // ★ 追加：タグ検索のパラメータが指定されている場合、VocaDBのクエリに反映する
       if (tagId) {
         vocaParams.set('tagId', tagId);
       }
