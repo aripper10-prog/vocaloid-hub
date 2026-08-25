@@ -202,7 +202,7 @@ export async function GET(request: Request) {
         vocaParams.set('childTags', 'true');
       }
 
-      const vocaUrl = `[https://vocadb.net/api/songs?$](https://vocadb.net/api/songs?$){vocaParams.toString()}`;
+const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
       console.log('🌐 VocaDB API Request:', vocaUrl);
 
       const vocaRes = await fetch(vocaUrl, {
