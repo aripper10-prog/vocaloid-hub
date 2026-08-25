@@ -161,7 +161,6 @@ export async function GET(request: Request) {
         vocaParams.append('artistId[]', artistId);
         vocaParams.set('artistParticipationStatus', 'Everything');
       } else if (mode === 'creator' && query.trim()) {
-        // アーティストIDが特定できなかった場合でも、VocaDBのquery検索へ流す
         vocaParams.set('query', query.trim());
         vocaParams.set('nameMatchMode', 'Auto');
       }
@@ -191,14 +190,24 @@ export async function GET(request: Request) {
       console.error('VocaDB fetch error:', vocaErr);
     }
 
-    const vocaItems = (vocaData.items || []).map((item: any) => ({
-      ...item,
-      artists: Array.isArray(item.artists) ? item.artists : [],
-      pvs: Array.isArray(item.pvs) ? item.pvs : [],
-      tags: Array.isArray(item.tags) ? item.tags : [],
-      credits: Array.isArray(item.credits) ? item.credits : [],
-      artistString: item.artistString || '',
-    }));
+    // ★ VocaDB公式のデータを、フロントエンドが確実に読めるように正規化・変換する
+    const vocaItems = (vocaData.items || []).map((item: any) => {
+      const youtubePv = (item.pvs || []).find((p: any) => p.service === 'Youtube');
+      const niconicoPv = (item.pvs || []).find((p: any) => p.service === 'NicoNicoDouga');
+
+      return {
+        ...item,
+        title: item.name || item.title || 'Untitled', // VocaDBの "name" を "title" に変換
+        thumbUrl: item.thumbUrl || youtubePv?.thumbUrl || niconicoPv?.thumbUrl || '',
+        youtubeId: youtubePv?.pvId || item.youtubeId,
+        niconicoId: niconicoPv?.pvId || item.niconicoId,
+        artists: Array.isArray(item.artists) ? item.artists : [],
+        pvs: Array.isArray(item.pvs) ? item.pvs : [],
+        tags: Array.isArray(item.tags) ? item.tags : [],
+        credits: Array.isArray(item.credits) ? item.credits : [],
+        artistString: item.artistString || '',
+      };
+    });
 
     // --- 3. YouTube検索の統合判定 ---
     let ytItems: any[] = [];
@@ -280,12 +289,11 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 4. 【最強の網羅性担保】クリエイター名検索時のメモリ上フィルタリング補正 ---
+    // --- 4. クリエイター名検索時のメモリ上フィルタリング補正 ---
     let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
 
     if (mode === 'creator' && query.trim()) {
       const targetQuery = query.trim().toLowerCase();
-      // クレジットやアーティスト文字列にクエリが含まれているものを確実にすくい上げる
       const matchedByCredit = allItems.filter((item: any) => {
         const hasInCredits = (item.credits || []).some((c: any) => 
           (c.creatorName || '').toLowerCase().includes(targetQuery)
