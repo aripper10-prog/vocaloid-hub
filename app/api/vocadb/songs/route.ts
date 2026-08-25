@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { GoogleGenAI } from '@google/genai';
 
 const VOCADB_ROLE_MAP: Record<string, string> = {
   music: 'Composer',
@@ -18,65 +19,65 @@ function shouldSearchYouTube(query: string): boolean {
   return personalKeywords.some((keyword) => q.includes(keyword));
 }
 
-// 8つの職域を概要欄から自動パースする関数
-function parseCreditsFromDescription(description: string = '', channelTitle: string = '', query: string = ''): Array<{ role: string; creatorName: string }> {
-  const creditsMap = new Map<string, string>();
-  const desc = description.toLowerCase();
+// Gemini APIを使った高精度クレジット抽出
+async function parseCreditsWithGemini(description: string = '', channelTitle: string = '', query: string = ''): Promise<Array<{ role: string; creatorName: string }>> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || !description.trim()) {
+    return [
+      { role: 'lyrics', creatorName: query.trim() || 'Unknown' },
+      { role: 'music', creatorName: channelTitle },
+    ];
+  }
 
-  // 1. パターンの定義（日本語・英語の主要な表記に対応）
-  const patterns: Array<{ role: string; keywords: string[] }> = [
-    { role: 'music', keywords: ['music', 'music & lyrics', '作編曲', '作曲', '作・編曲', '作・曲', 'composed by', 'music by'] },
-    { role: 'lyrics', keywords: ['lyrics', '作詞', '作・詞', 'lyrics by', 'word'] },
-    { role: 'tuning', keywords: ['tuning', '調声', 'vocal manipulate', 'ust'] },
-    { role: 'singer', keywords: ['vocal', 'vocalist', 'singer', '歌唱', '歌', 'ボーカル', 'vocal&', '&vocal'] },
-    { role: 'mix', keywords: ['mix', 'mastering', 'mix & mastering', 'mix&mastering', 'ミックス', 'マスタリング', 'mix by', 'engineered by'] },
-    { role: 'illust', keywords: ['illust', 'illustration', 'illustrator', 'イラスト', '絵', 'アート', 'art', 'drawn by'] },
-    { role: 'movie', keywords: ['movie', 'animation', 'video', 'mv', '動画', '映像', '映像制作', 'movie by', 'directed by'] },
-    { role: 'dance', keywords: ['choreography', 'dance', '振付', '振り付け', '踊ってみた'] },
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `
+以下のYouTube動画の概要欄とチャンネル名から、音楽制作に関わったクリエイターのクレジットを抽出し、JSONの配列形式でのみ出力してください。
+
+【対象の職域ロール（8種類のみ使用可能）】
+- "music" (作曲/編曲)
+- "lyrics" (作詞)
+- "tuning" (調声)
+- "singer" (ボーカル/歌唱)
+- "mix" (MIX/マスタリング)
+- "illust" (イラスト/絵)
+- "movie" (動画/映像/MV)
+- "dance" (振付/ダンス)
+
+【入力情報】
+チャンネル名: ${channelTitle}
+検索クエリ(関係者である可能性高): ${query}
+概要欄:
+${description}
+
+【出力形式の指定】
+余計な挨拶やマークダウンのバッククォート（\`\`\`など）は一切含めず、純粋なJSON配列のみを返してください。例：
+[
+  {"role": "lyrics", "creatorName": "作詞師ari"},
+  {"role": "music", "creatorName": "〇〇"}
+]
+`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+
+    const text = response.text?.trim() || '[]';
+    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleanJson);
+
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch (e) {
+    console.error('Gemini credit parsing error:', e);
+  }
+
+  return [
+    { role: 'lyrics', creatorName: query.trim() || 'Unknown' },
+    { role: 'music', creatorName: channelTitle },
   ];
-
-  // 2. 行ごとに分割してパース
-  const lines = description.split('\n');
-  for (const line of lines) {
-    const lowerLine = line.toLowerCase();
-    for (const p of patterns) {
-      if (creditsMap.has(p.role)) continue; // 既に埋まっていたらスキップ
-      for (const kw of p.keywords) {
-        if (lowerLine.includes(kw)) {
-          // コロンやコロンの前後、あるいは「:」以降の名前を抽出
-          const parts = line.split(/[:：\-\/]/);
-          if (parts.length > 1) {
-            const name = parts.slice(1).join(' ').trim();
-            if (name && name.length < 30) {
-              creditsMap.set(p.role, name);
-              break;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 3. 概要欄から拾えなかった場合のフォールバック＆補正
-  const cleanQuery = query.trim();
-  if (cleanQuery && shouldSearchYouTube(query)) {
-    // 検索クエリが含まれている場合は、最低限「作詞」などに安全に割り当てる
-    if (!creditsMap.has('lyrics')) {
-      creditsMap.set('lyrics', cleanQuery);
-    }
-  }
-
-  if (!creditsMap.has('music') && channelTitle) {
-    creditsMap.set('music', channelTitle);
-  }
-
-  // Mapから配列へ変換
-  const result: Array<{ role: string; creatorName: string }> = [];
-  for (const [role, creatorName] of creditsMap.entries()) {
-    result.push({ role, creatorName });
-  }
-
-  return result;
 }
 
 export async function GET(request: Request) {
@@ -225,49 +226,51 @@ export async function GET(request: Request) {
             const detailsData = await detailsRes.json();
 
             if (detailsData.items && Array.isArray(detailsData.items)) {
-              ytItems = detailsData.items.map((item: any) => {
-                const channelTitle = item.snippet?.channelTitle || 'Unknown';
-                const description = item.snippet?.description || '';
-                
-                // 概要欄から8つの職域を自動パース
-                const parsedCredits = parseCreditsFromDescription(description, channelTitle, query);
+              // 各動画の概要欄をGeminiで並行パース
+              ytItems = await Promise.all(
+                detailsData.items.map(async (item: any) => {
+                  const channelTitle = item.snippet?.channelTitle || 'Unknown';
+                  const description = item.snippet?.description || '';
+                  
+                  const parsedCredits = await parseCreditsWithGemini(description, channelTitle, query);
 
-                return {
-                  id: `yt_${item.id}`,
-                  title: item.snippet?.title || 'Untitled',
-                  artists: [
-                    {
-                      name: channelTitle,
-                      isSupport: false,
-                      roles: ['Producer'],
-                      artist: { id: 0, name: channelTitle, artistType: 'Producer' },
-                    },
-                  ],
-                  artistString: channelTitle,
-                  songType: 'Original',
-                  thumbUrl: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || '',
-                  publishDate: item.snippet?.publishedAt || new Date().toISOString(),
-                  pvs: [
-                    {
-                      service: 'Youtube',
-                      url: `https://www.youtube.com/watch?v=${item.id}`,
-                      pvId: item.id,
-                    },
-                  ],
-                  tags: [],
-                  albums: [],
-                  lyrics: [],
-                  webLinks: [],
-                  youtubeId: item.id,
-                  niconicoId: undefined,
-                  credits: parsedCredits,
-                  viewCount: item.statistics?.viewCount ? parseInt(item.statistics.viewCount, 10) : 0,
-                  ratingScore: 0,
-                  favoritedTimes: 0,
-                  commentCount: 0,
-                  listCount: 0,
-                };
-              });
+                  return {
+                    id: `yt_${item.id}`,
+                    title: item.snippet?.title || 'Untitled',
+                    artists: [
+                      {
+                        name: channelTitle,
+                        isSupport: false,
+                        roles: ['Producer'],
+                        artist: { id: 0, name: channelTitle, artistType: 'Producer' },
+                      },
+                    ],
+                    artistString: channelTitle,
+                    songType: 'Original',
+                    thumbUrl: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || '',
+                    publishDate: item.snippet?.publishedAt || new Date().toISOString(),
+                    pvs: [
+                      {
+                        service: 'Youtube',
+                        url: `https://www.youtube.com/watch?v=${item.id}`,
+                        pvId: item.id,
+                      },
+                    ],
+                    tags: [],
+                    albums: [],
+                    lyrics: [],
+                    webLinks: [],
+                    youtubeId: item.id,
+                    niconicoId: undefined,
+                    credits: parsedCredits,
+                    viewCount: item.statistics?.viewCount ? parseInt(item.statistics.viewCount, 10) : 0,
+                    ratingScore: 0,
+                    favoritedTimes: 0,
+                    commentCount: 0,
+                    listCount: 0,
+                  };
+                })
+              );
             }
           }
         }
