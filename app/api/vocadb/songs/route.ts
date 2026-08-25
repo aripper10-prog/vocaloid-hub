@@ -102,7 +102,7 @@ async function parseCreditsWithGemini(
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const query = searchParams.get('query') || '';
+    const query = searchParams.get('query'] || searchParams.get('q') || '';
     const mode = searchParams.get('mode') || 'song';
     const sort = searchParams.get('sort') || 'PublishDate';
     const maxResults = searchParams.get('maxResults') || '48';
@@ -111,6 +111,10 @@ export async function GET(request: Request) {
     let artistId = searchParams.get('artistId');
     const role = searchParams.get('role');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
+
+    // ★ 追加：タグ検索用のパラメータ（tagId, tag）をフロントエンドから正しく受け取る
+    const tagId = searchParams.get('tagId');
+    const tag = searchParams.get('tag');
 
     // --- 1. クリエイター検索モード時: アーティストIDの確実な自動解決 ---
     if (mode === 'creator' && query.trim() && !artistId) {
@@ -168,7 +172,7 @@ export async function GET(request: Request) {
         songTypes: songTypes,
       });
 
-      if (mode === 'song' && query.trim()) {
+      if (query.trim()) {
         vocaParams.set('query', query.trim());
         vocaParams.set('nameMatchMode', 'Auto');
       }
@@ -176,9 +180,14 @@ export async function GET(request: Request) {
       if (artistId && !isNaN(Number(artistId))) {
         vocaParams.append('artistId[]', artistId);
         vocaParams.set('artistParticipationStatus', 'Everything');
-      } else if (mode === 'creator' && query.trim()) {
-        vocaParams.set('query', query.trim());
-        vocaParams.set('nameMatchMode', 'Auto');
+      }
+
+      // ★ 追加：タグ検索のパラメータが指定されている場合、VocaDBのクエリに反映する
+      if (tagId) {
+        vocaParams.set('tagId', tagId);
+      }
+      if (tag) {
+        vocaParams.set('tag', tag);
       }
 
       if (role && role !== 'all' && VOCADB_ROLE_MAP[role]) {
@@ -241,10 +250,9 @@ export async function GET(request: Request) {
       };
     });
 
-    // --- 3. YouTube検索の統合判定（ハードコード排除版） ---
+    // --- 3. YouTube検索の統合判定 ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
-    // VocaDBでヒットしなかった場合、またはクリエイター検索モードの場合は自動的にYouTubeをフォールバック検索
     const shouldFetchYT = Boolean(query.trim() && apiKey && (vocaItems.length === 0 || mode === 'creator'));
 
     if (shouldFetchYT) {
