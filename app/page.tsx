@@ -100,13 +100,22 @@ useEffect(() => {
       try {
         let currentArtistId = urlArtistId;
 
-        // ★ タグやリンク経由で `artistId` がない状態で飛んできた場合、ここで自動解決してURLをキレイに補完する
+      // ★ タグやリンク経由、または手動検索で `artistId` がない場合の賢い自動解決
         if (urlMode === 'creator' && urlQuery.trim() && !currentArtistId) {
           try {
             const artists = await searchVocaDBArtists(urlQuery.trim());
             if (artists && artists.length > 0) {
-              currentArtistId = String(artists[0].id);
-              // URLもartistId付きのものに自動アップデートする
+              const target = urlQuery.trim().toLowerCase();
+              
+              // ① 名前、または追加名に完全一致、あるいは部分一致するものを最優先で探す
+              const matched = artists.find((a: any) => {
+                const name = (a.name || '').toLowerCase();
+                const addNames = (a.additionalNames || '').toLowerCase();
+                return name === target || addNames.includes(target) || target.includes(name);
+              }) || artists[0]; // フォールバックとして先頭
+
+              currentArtistId = String(matched.id);
+
               const params = new URLSearchParams(searchParams.toString());
               params.set('artistId', currentArtistId);
               router.replace(`/?${params.toString()}`);
@@ -115,7 +124,6 @@ useEffect(() => {
             console.error('Auto artistId resolution error:', e);
           }
         }
-
         const songTypesParam =
           urlMode === 'song' && urlSongType === 'original'
             ? 'Original'
