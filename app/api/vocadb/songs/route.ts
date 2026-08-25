@@ -96,6 +96,7 @@ export async function GET(request: Request) {
     const role = searchParams.get('role');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
+    // --- 1. クリエイター検索モード時: アーティストIDの自動解決 ---
     if (mode === 'creator' && query.trim() && !artistId) {
       try {
         const artistSearchUrl = `https://vocadb.net/api/artists?query=${encodeURIComponent(
@@ -138,6 +139,7 @@ export async function GET(request: Request) {
       } catch (e) {}
     }
 
+    // --- 2. VocaDB楽曲検索の実行 ---
     let vocaData: any = { items: [], totalCount: 0 };
     try {
       const vocaParams = new URLSearchParams({
@@ -159,6 +161,7 @@ export async function GET(request: Request) {
         vocaParams.append('artistId[]', artistId);
         vocaParams.set('artistParticipationStatus', 'Everything');
       } else if (mode === 'creator' && query.trim()) {
+        // アーティストIDが特定できなかった場合でも、VocaDBのquery検索へ流す
         vocaParams.set('query', query.trim());
         vocaParams.set('nameMatchMode', 'Auto');
       }
@@ -197,10 +200,11 @@ export async function GET(request: Request) {
       artistString: item.artistString || '',
     }));
 
+    // --- 3. YouTube検索の統合判定 ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
     const isPersonalQuery = shouldSearchYouTube(query);
-    const shouldFetchYT = Boolean(query.trim() && apiKey && (vocaItems.length === 0 || isPersonalQuery));
+    const shouldFetchYT = Boolean(query.trim() && apiKey && (vocaItems.length === 0 || isPersonalQuery || mode === 'creator'));
 
     if (shouldFetchYT) {
       try {
@@ -276,15 +280,35 @@ export async function GET(request: Request) {
       }
     }
 
-    const existingIds = new Set(vocaItems.map((item: any) => String(item.id)));
-    const uniqueYtItems = ytItems.filter((yt: any) => !existingIds.has(String(yt.id)));
+    // --- 4. 【最強の網羅性担保】クリエイター名検索時のメモリ上フィルタリング補正 ---
+    let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
 
-    const mergedItems = [...vocaItems, ...uniqueYtItems];
-    const totalCount = (vocaData.totalCount || vocaItems.length) + uniqueYtItems.length;
+    if (mode === 'creator' && query.trim()) {
+      const targetQuery = query.trim().toLowerCase();
+      // クレジットやアーティスト文字列にクエリが含まれているものを確実にすくい上げる
+      const matchedByCredit = allItems.filter((item: any) => {
+        const hasInCredits = (item.credits || []).some((c: any) => 
+          (c.creatorName || '').toLowerCase().includes(targetQuery)
+        );
+        const hasInArtists = (item.artists || []).some((a: any) => 
+          (a.name || '').toLowerCase().includes(targetQuery)
+        );
+        const hasInString = (item.artistString || '').toLowerCase().includes(targetQuery);
+        const hasInTitle = (item.title || '').toLowerCase().includes(targetQuery);
+
+        return hasInCredits || hasInArtists || hasInString || hasInTitle;
+      });
+
+      if (matchedByCredit.length > 0) {
+        allItems = matchedByCredit;
+      }
+    }
+
+    const totalCount = allItems.length;
 
     return NextResponse.json(
       {
-        items: mergedItems,
+        items: allItems,
         totalCount: totalCount,
       },
       {
