@@ -15,17 +15,16 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('query') || '';
-    const mode = searchParams.get('mode') || 'song';
     const sort = searchParams.get('sort') || 'PublishDate';
     const maxResults = searchParams.get('maxResults') || '48';
     const start = searchParams.get('start') || '0';
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
     const role = searchParams.get('role');
 
-    let items: any[] = [];
+    let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
 
-    // --- 1. YouTube検索：余計なヒットを防ぐ「完全一致」 ---
+    // --- 1. YouTube検索（完全一致） ---
     if (query.trim() && apiKey) {
       try {
         const exactQuery = `"${query.trim()}"`;
@@ -48,7 +47,7 @@ export async function GET(request: Request) {
             const detailsData = await detailsRes.json();
 
             if (detailsData.items && Array.isArray(detailsData.items)) {
-              const ytSongs = detailsData.items.map((item: any) => ({
+              ytItems = detailsData.items.map((item: any) => ({
                 id: `yt_${item.id}`,
                 title: item.snippet?.title || 'Untitled',
                 artists: [{ name: item.snippet?.channelTitle || 'Unknown' }],
@@ -66,8 +65,6 @@ export async function GET(request: Request) {
                 ],
                 viewCount: item.statistics?.viewCount ? parseInt(item.statistics.viewCount, 10) : undefined,
               }));
-
-              items = [...items, ...ytSongs];
             }
           }
         }
@@ -76,7 +73,8 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 2. VocaDB検索：カスリ傷でも広範囲に拾う「あいまい・柔軟検索」 ---
+    // --- 2. VocaDB検索（柔軟にあいまい検索） ---
+    let vocaData: any = { items: [], totalCount: 0 };
     try {
       const vocaParams = new URLSearchParams({
         sort: sort,
@@ -89,7 +87,6 @@ export async function GET(request: Request) {
       });
 
       if (query.trim()) {
-        // VocaDB側はあえて完全一致にせず、かすったデータも引っ張るために通常のAutoマッチにする
         vocaParams.set('query', query.trim());
         vocaParams.set('nameMatchMode', 'Auto');
       }
@@ -108,23 +105,24 @@ export async function GET(request: Request) {
       });
 
       if (vocaRes.ok) {
-        const vocaData = await vocaRes.json();
-        const vocaItems = vocaData.items || [];
-
-        // IDの重複を防ぎながら、YouTubeの結果とVocaDB（ニコニコPV等）の結果を合体
-        const existingIds = new Set(items.map((item) => String(item.id)));
-        const uniqueVocaItems = vocaItems.filter((v: any) => !existingIds.has(String(v.id)));
-
-        items = [...items, ...uniqueVocaItems];
+        vocaData = await vocaRes.json();
       }
     } catch (vocaErr) {
       console.error('VocaDB fetch error:', vocaErr);
     }
 
+    // データの合体（YouTubeの曲を先頭に、VocaDB/ニコニコの曲を後ろに結合）
+    const vocaItems = vocaData.items || [];
+    const existingIds = new Set(ytItems.map((item) => String(item.id)));
+    const uniqueVocaItems = vocaItems.filter((v: any) => !existingIds.has(String(v.id)));
+
+    const mergedItems = [...ytItems, ...uniqueVocaItems];
+    const totalCount = (vocaData.totalCount || vocaItems.length) + ytItems.length;
+
     return NextResponse.json(
       {
-        items,
-        totalCount: items.length,
+        items: mergedItems,
+        totalCount: totalCount,
       },
       {
         headers: {
