@@ -102,15 +102,20 @@ export default function SongDetailPage() {
         const data = await getVocaDBSongDetail(songId);
 
         if (data && data.song) {
+          // 安全ガードを徹底
           if (
             cachedSong &&
             cachedSong.credits &&
-            cachedSong.credits.length >= (data.song.credits?.length || 0)
+            (cachedSong.credits.length || 0) >= (data.song.credits?.length || 0)
           ) {
             data.song.credits = cachedSong.credits;
             data.song.artistString = cachedSong.artistString || data.song.artistString;
           }
-          setDetail(data);
+          setDetail({
+            song: data.song,
+            derivedSongs: Array.isArray(data.derivedSongs) ? data.derivedSongs : [],
+            originalSong: data.originalSong || null,
+          });
         } else if (cachedSong) {
           setDetail({
             song: cachedSong,
@@ -168,7 +173,7 @@ export default function SongDetailPage() {
     );
   }
 
-  const { song, derivedSongs, originalSong } = detail;
+  const { song, derivedSongs = [], originalSong = null } = detail;
   const typeBadge = SONG_TYPE_MAP[song.songType] || { label: song.songType, color: 'bg-slate-800 text-slate-300' };
 
   return (
@@ -211,7 +216,7 @@ export default function SongDetailPage() {
           </button>
         </div>
 
-        {/* プレイヤーコンテナ ＆ 外部リンクターゲット */}
+        {/* プレイヤーコンテナ */}
         <div className="space-y-3">
           <div className="relative aspect-video w-full rounded-3xl overflow-hidden shadow-2xl border bg-black border-slate-800">
             {song.youtubeId ? (
@@ -245,7 +250,6 @@ export default function SongDetailPage() {
             )}
           </div>
 
-          {/* 元動画への直接外部リンク */}
           <div className="flex items-center justify-end gap-2 text-xs">
             {song.youtubeId && (
               <a
@@ -293,7 +297,6 @@ export default function SongDetailPage() {
             </p>
           </div>
 
-          {/* 職域クレジット */}
           <div className={`pt-6 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-100'}`}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xs font-bold opacity-60 uppercase tracking-wider">
