@@ -2,56 +2,72 @@
 
 import { useState, useEffect, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { useTheme } from './context/ThemeContext';
-import { searchVocaDBSongs, searchVocaDBArtists, VocaDBSong, VocaDBArtist } from '../lib/vocadb';
+import { searchVocaDBSongs, searchVocaDBArtists, getVocaDBSongDetail, VocaDBSong, VocaDBArtist } from '../lib/vocadb';
 
 const PAGE_SIZE = 48;
 
 const ROLE_CONFIG: Record<
   string,
-  { label: string; darkBadge: string; lightBadge: string }
+  { label: string; icon: string; darkBadge: string; lightBadge: string }
 > = {
   music: {
-    label: '🎵 作曲',
+    label: '作曲 / 編曲',
+    icon: '🎵',
     darkBadge: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30',
     lightBadge: 'bg-cyan-50 text-cyan-700 border-cyan-200',
   },
   lyrics: {
-    label: '✍️ 作詞',
+    label: '作詞',
+    icon: '✍️',
     darkBadge: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
     lightBadge: 'bg-purple-50 text-purple-700 border-purple-200',
   },
   tuning: {
-    label: '🎛️ 調声',
+    label: '調声',
+    icon: '🎛️',
     darkBadge: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
     lightBadge: 'bg-amber-50 text-amber-700 border-amber-200',
   },
   singer: {
-    label: '🎙️ ボーカル',
+    label: 'ボーカル',
+    icon: '🎙️',
     darkBadge: 'bg-pink-500/10 text-pink-300 border-pink-500/30',
     lightBadge: 'bg-pink-50 text-pink-700 border-pink-200',
   },
   mix: {
-    label: '🎧 MIX',
+    label: 'MIX / Mastering',
+    icon: '🎧',
     darkBadge: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30',
     lightBadge: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   },
   illust: {
-    label: '🎨 イラスト',
+    label: 'イラスト',
+    icon: '🎨',
     darkBadge: 'bg-orange-500/10 text-orange-300 border-orange-500/30',
     lightBadge: 'bg-orange-50 text-orange-700 border-orange-200',
   },
   movie: {
-    label: '🎬 動画',
+    label: '動画・映像',
+    icon: '🎬',
     darkBadge: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
     lightBadge: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   },
   dance: {
-    label: '💃 振付',
+    label: '振付・ダンス',
+    icon: '💃',
     darkBadge: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
     lightBadge: 'bg-rose-50 text-rose-700 border-rose-200',
   },
+};
+
+const SONG_TYPE_MAP: Record<string, { label: string; color: string }> = {
+  Original: { label: '🎵 ボカロ原曲', color: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' },
+  Cover: { label: '🎙️ カバー / 歌ってみた', color: 'bg-pink-500/10 text-pink-400 border-pink-500/30' },
+  Remix: { label: '🎛️ Remix / アレンジ', color: 'bg-purple-500/10 text-purple-400 border-purple-500/30' },
+  Other: { label: '✨ 提供曲 / コラボ', color: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
+  MusicPV: { label: '🎬 公式PV', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' },
+  LiveWeb: { label: '🌐 リアルタイムWeb解析', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' },
 };
 
 const SORT_OPTIONS = [
@@ -59,6 +75,244 @@ const SORT_OPTIONS = [
   { key: 'FavoritedTimes', label: '🌟 歴代人気順' },
 ];
 
+// --- 楽曲詳細モーダルコンポーネント ---
+function SongModal({
+  songId,
+  initialSong,
+  onClose,
+  isDark,
+}: {
+  songId: string;
+  initialSong: VocaDBSong | null;
+  onClose: () => void;
+  isDark: boolean;
+}) {
+  const [detail, setDetail] = useState<{
+    song: VocaDBSong;
+    derivedSongs: VocaDBSong[];
+    originalSong: VocaDBSong | null;
+  } | null>(initialSong ? { song: initialSong, derivedSongs: [], originalSong: null } : null);
+  const [loading, setLoading] = useState(!initialSong);
+
+  useEffect(() => {
+    if (!songId) return;
+
+    async function loadData() {
+      setLoading(true);
+      try {
+        const data = await getVocaDBSongDetail(songId);
+        if (data && data.song) {
+          if (
+            initialSong &&
+            initialSong.credits &&
+            (initialSong.credits.length || 0) >= (data.song.credits?.length || 0)
+          ) {
+            data.song.credits = initialSong.credits;
+            data.song.artistString = initialSong.artistString || data.song.artistString;
+          }
+          setDetail({
+            song: data.song,
+            derivedSongs: Array.isArray(data.derivedSongs) ? data.derivedSongs : [],
+            originalSong: data.originalSong || null,
+          });
+        } else if (initialSong) {
+          setDetail({ song: initialSong, derivedSongs: [], originalSong: null });
+        }
+      } catch (err) {
+        console.error('Failed to load modal detail:', err);
+        if (initialSong) {
+          setDetail({ song: initialSong, derivedSongs: [], originalSong: null });
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadData();
+  }, [songId]);
+
+  // モーダル背景クリックで閉じる
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
+  if (!detail && loading) {
+    return (
+      <div onClick={handleBackdropClick} className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
+        <div className={`p-8 rounded-3xl border flex flex-col items-center gap-3 ${isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'}`}>
+          <div className="w-8 h-8 rounded-full border-3 border-cyan-500 border-t-transparent animate-spin"></div>
+          <p className="text-xs font-medium">詳細情報を読み込み中...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const song = detail?.song || initialSong;
+  if (!song) return null;
+
+  const typeBadge = SONG_TYPE_MAP[song.songType] || { label: song.songType, color: 'bg-slate-800 text-slate-300' };
+
+  return (
+    <div
+      onClick={handleBackdropClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 sm:p-6 overflow-y-auto"
+    >
+      <div
+        className={`relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl border shadow-2xl p-6 sm:p-8 space-y-6 ${
+          isDark ? 'bg-[#0b101b] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+        }`}
+      >
+        {/* 閉じるボタン */}
+        <div className="flex items-center justify-between sticky top-0 z-20 pb-3 border-b backdrop-blur-md -mx-6 -mt-6 px-6 pt-6 bg-inherit">
+          <span className="text-xs font-bold opacity-60">楽曲詳細プレイヤー</span>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-slate-800/50 hover:bg-slate-800 text-slate-300 flex items-center justify-center text-xs font-bold cursor-pointer transition-all"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* プレイヤー */}
+        <div className="space-y-3">
+          <div className="relative aspect-video w-full rounded-2xl overflow-hidden shadow-lg border bg-black border-slate-800">
+            {song.youtubeId ? (
+              <iframe
+                src={`https://www.youtube.com/embed/${song.youtubeId}?autoplay=0`}
+                title={song.title}
+                className="w-full h-full border-0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            ) : song.niconicoId ? (
+              <iframe
+                src={`https://embed.nicovideo.jp/watch/${song.niconicoId}`}
+                title={song.title}
+                className="w-full h-full border-0"
+                allowFullScreen
+              />
+            ) : song.thumbUrl ? (
+              <img src={song.thumbUrl} alt={song.title} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-slate-600 text-xs font-mono">
+                NO VIDEO / PREVIEW
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 text-xs">
+            {song.youtubeId && (
+              <a
+                href={`https://www.youtube.com/watch?v=${song.youtubeId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-red-600/10 text-red-400 hover:bg-red-600/20 border border-red-500/20 font-bold transition-all"
+              >
+                YouTubeで開く ↗
+              </a>
+            )}
+            {song.niconicoId && (
+              <a
+                href={`https://www.nicovideo.jp/watch/${song.niconicoId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/20 font-bold transition-all"
+              >
+                ニコニコ動画で開く ↗
+              </a>
+            )}
+          </div>
+        </div>
+
+        {/* タイトルと情報 */}
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`text-[11px] font-bold px-3 py-1 rounded-full border ${typeBadge.color}`}>
+              {typeBadge.label}
+            </span>
+          </div>
+          <h2 className="text-xl sm:text-2xl font-black tracking-tight leading-snug">{song.title}</h2>
+          <p className="text-xs opacity-50 font-medium">アーティスト表記: {song.artistString}</p>
+        </div>
+
+        {/* 職域クレジット */}
+        <div className={`pt-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+          <h3 className="text-xs font-bold opacity-60 uppercase tracking-wider mb-3">職域クレジット</h3>
+          {song.credits && song.credits.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {song.credits.map((c, i) => {
+                const config = ROLE_CONFIG[c.role] || {
+                  label: c.role,
+                  icon: '✨',
+                  darkBadge: 'bg-slate-950 text-slate-300 border-slate-800',
+                  lightBadge: 'bg-slate-100 text-slate-700 border-slate-200',
+                };
+                const roleLabel = c.role === 'singer' && c.isHumanSinger ? '🎙️ 歌唱 (歌い手)' : config.label;
+                const searchUrl = c.artistId
+                  ? `/?mode=creator&artistId=${c.artistId}&query=${encodeURIComponent(c.creatorName)}&role=${c.role}&page=1`
+                  : `/?mode=creator&query=${encodeURIComponent(c.creatorName)}&role=${c.role}&page=1`;
+
+                return (
+                  <a
+                    key={i}
+                    href={searchUrl}
+                    className={`group p-3 rounded-2xl border flex items-center justify-between transition-all ${
+                      isDark
+                        ? 'bg-slate-950/60 border-slate-800 hover:border-cyan-500/50 hover:bg-slate-900'
+                        : 'bg-slate-50 border-slate-200 hover:border-cyan-400 hover:bg-white'
+                    }`}
+                  >
+                    <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${isDark ? config.darkBadge : config.lightBadge}`}>
+                      <span>{config.icon}</span>
+                      <span>{roleLabel}</span>
+                    </span>
+                    <span className="text-xs font-bold truncate group-hover:text-cyan-400 transition-colors ml-2">
+                      {c.creatorName} ➔
+                    </span>
+                  </a>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs opacity-50">クレジット情報が登録されていません。</p>
+          )}
+        </div>
+
+        {/* 派生ツリー */}
+        {detail && (detail.originalSong || (detail.derivedSongs && detail.derivedSongs.length > 0)) && (
+          <div className={`pt-4 border-t space-y-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+            <h3 className="text-xs font-bold opacity-60 uppercase tracking-wider">派生ツリー</h3>
+            {detail.originalSong && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-cyan-400">⬆ 原曲</span>
+                <div className={`p-3 rounded-2xl border text-xs font-bold ${isDark ? 'bg-slate-950 border-cyan-500/30' : 'bg-cyan-50 border-cyan-200'}`}>
+                  {detail.originalSong.title} ({detail.originalSong.artistString})
+                </div>
+              </div>
+            )}
+            {detail.derivedSongs && detail.derivedSongs.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-[10px] font-bold opacity-60">⬇ この曲の派生作品 ({detail.derivedSongs.length}件)</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {detail.derivedSongs.map((d) => (
+                    <div key={d.id} className={`p-2.5 rounded-xl border text-xs truncate ${isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="font-bold truncate">{d.title}</div>
+                      <div className="text-[10px] opacity-50 truncate">{d.artistString}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- メインホーム画面 ---
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -81,6 +335,10 @@ function HomeContent() {
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState('PublishDate');
+
+  // モーダル表示用のステート
+  const [activeModalSongId, setActiveModalSongId] = useState<string | null>(null);
+  const [activeModalSongData, setActiveModalSongData] = useState<VocaDBSong | null>(null);
 
   const [artistSuggestions, setArtistSuggestions] = useState<VocaDBArtist[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -111,7 +369,6 @@ function HomeContent() {
             const artists = await searchVocaDBArtists(urlQuery.trim());
             if (artists && artists.length > 0) {
               const target = urlQuery.trim().toLowerCase();
-              
               let matched = artists.find((a: any) => {
                 const name = (a.name || '').toLowerCase();
                 const addNames = (a.additionalNames || '').toLowerCase();
@@ -122,13 +379,11 @@ function HomeContent() {
               if (!matched) {
                 matched = artists.find((a: any) => (a.artistType || '').toLowerCase() === 'producer');
               }
-
               if (!matched) {
                 matched = artists[0];
               }
 
               currentArtistId = String(matched.id);
-
               const params = new URLSearchParams(searchParams.toString());
               params.set('artistId', currentArtistId);
               router.replace(`/?${params.toString()}`);
@@ -279,7 +534,7 @@ function HomeContent() {
     setSort(newSort);
   };
 
-  // --- ★ 手元（メモリ上）での厳格なフィルタリング ---
+  // --- 手元（メモリ上）での厳格なフィルタリング ---
   const filteredSongs = songs.filter((song) => {
     let nameMatched = true;
     if (urlMode === 'creator' && urlQuery.trim()) {
@@ -300,7 +555,6 @@ function HomeContent() {
       const artists = song.artists || [];
       
       const matchCreditRole = credits.some((c: any) => c.role === selectedRole);
-      
       const matchArtistRole = artists.some((a: any) => {
         const aRoles = a.roles || [];
         if (selectedRole === 'music' && (aRoles.includes('Composer') || aRoles.includes('Arranger'))) return true;
@@ -360,9 +614,7 @@ function HomeContent() {
         {/* ヘッダー */}
         <header
           className={`flex items-center justify-between p-4 sm:p-5 rounded-3xl border backdrop-blur-2xl shadow-sm ${
-            isDark
-              ? 'bg-slate-900/60 border-slate-800/80'
-              : 'bg-white/80 border-slate-200/80 shadow-slate-200/50'
+            isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white/80 border-slate-200/80 shadow-slate-200/50'
           }`}
         >
           <button
@@ -390,9 +642,7 @@ function HomeContent() {
           <button
             onClick={toggleTheme}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-sm ${
-              isDark
-                ? 'bg-slate-900 border-slate-700 text-amber-300 hover:bg-slate-800'
-                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+              isDark ? 'bg-slate-900 border-slate-700 text-amber-300 hover:bg-slate-800' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
             }`}
           >
             <span>{isDark ? '🌙' : '☀️'}</span>
@@ -400,25 +650,15 @@ function HomeContent() {
           </button>
         </header>
 
-        {/* 2つの独立検索パネル */}
+        {/* 検索パネル等 */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-5 relative z-30">
-          {/* 1. 曲名検索窓 */}
-          <div
-            className={`p-5 sm:p-6 rounded-3xl border backdrop-blur-xl shadow-lg space-y-3 transition-all ${
-              urlMode === 'song' && urlQuery
-                ? 'ring-2 ring-cyan-500/50 border-cyan-500/50'
-                : isDark
-                ? 'bg-slate-900/40 border-slate-800/80 shadow-slate-950/40'
-                : 'bg-white/80 border-slate-200/80 shadow-slate-100'
-            }`}
-          >
+          <div className={`p-5 sm:p-6 rounded-3xl border backdrop-blur-xl shadow-lg space-y-3 transition-all ${
+            urlMode === 'song' && urlQuery ? 'ring-2 ring-cyan-500/50 border-cyan-500/50' : isDark ? 'bg-slate-900/40 border-slate-800/80' : 'bg-white/80 border-slate-200/80'
+          }`}>
             <div className="flex items-center gap-2">
               <span className="text-base">🎵</span>
-              <span className="text-xs font-black uppercase tracking-wider text-cyan-400">
-                曲名で検索
-              </span>
+              <span className="text-xs font-black uppercase tracking-wider text-cyan-400">曲名で検索</span>
             </div>
-
             <form onSubmit={handleSongSearch} className="flex gap-2 relative">
               <div className="relative flex-1">
                 <input
@@ -427,118 +667,47 @@ function HomeContent() {
                   value={songQueryInput}
                   onChange={(e) => setSongQueryInput(e.target.value)}
                   className={`w-full rounded-2xl px-4 py-3 text-xs transition-all focus:outline-none focus:ring-2 focus:ring-cyan-500/30 ${
-                    isDark
-                      ? 'bg-slate-950/80 border border-slate-800 text-slate-100 placeholder-slate-600 focus:border-cyan-500'
-                      : 'bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:border-cyan-500'
+                    isDark ? 'bg-slate-950/80 border border-slate-800 text-slate-100' : 'bg-slate-50 border border-slate-200 text-slate-900'
                   }`}
                 />
-                {songQueryInput && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSongQueryInput('');
-                      handleResetAll();
-                    }}
-                    className="absolute right-3 top-3 text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                )}
               </div>
-
-              <button
-                type="submit"
-                className="px-5 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-black text-xs rounded-2xl shadow hover:opacity-90 cursor-pointer shrink-0"
-              >
+              <button type="submit" className="px-5 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-black text-xs rounded-2xl shadow cursor-pointer shrink-0">
                 検索 ➔
               </button>
             </form>
-            <p className="text-[10px] opacity-50">※楽曲タイトルのみを対象に検索（原曲最優先）</p>
           </div>
 
-          {/* 2. クリエイター・職域検索窓 */}
-          <div
-            className={`p-5 sm:p-6 rounded-3xl border backdrop-blur-xl shadow-lg space-y-3 transition-all relative ${
-              urlMode === 'creator' && urlQuery
-                ? 'ring-2 ring-purple-500/50 border-purple-500/50'
-                : isDark
-                ? 'bg-slate-900/40 border-slate-800/80 shadow-slate-950/40'
-                : 'bg-white/80 border-slate-200/80 shadow-slate-100'
-            }`}
-            ref={suggestBoxRef}
-          >
+          <div className={`p-5 sm:p-6 rounded-3xl border backdrop-blur-xl shadow-lg space-y-3 transition-all relative ${
+            urlMode === 'creator' && urlQuery ? 'ring-2 ring-purple-500/50 border-purple-500/50' : isDark ? 'bg-slate-900/40 border-slate-800/80' : 'bg-white/80 border-slate-200/80'
+          }`} ref={suggestBoxRef}>
             <div className="flex items-center gap-2">
               <span className="text-base">👤</span>
-              <span className="text-xs font-black uppercase tracking-wider text-purple-400">
-                クリエイター名・職域で検索
-              </span>
+              <span className="text-xs font-black uppercase tracking-wider text-purple-400">クリエイター名・職域で検索</span>
             </div>
-
             <form onSubmit={handleCreatorSearch} className="flex gap-2 relative">
               <div className="relative flex-1">
                 <input
                   type="text"
-                  placeholder="クリエイター名を入力（作詞/作曲/絵師/MIX/歌い手など）..."
+                  placeholder="クリエイター名を入力..."
                   value={creatorQueryInput}
                   onChange={(e) => {
                     setCreatorQueryInput(e.target.value);
-                    if (e.target.value.trim().length > 1) {
-                      setShowSuggestions(true);
-                    }
+                    if (e.target.value.trim().length > 1) setShowSuggestions(true);
                   }}
                   className={`w-full rounded-2xl px-4 py-3 text-xs transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/30 ${
-                    isDark
-                      ? 'bg-slate-950/80 border border-slate-800 text-slate-100 placeholder-slate-600 focus:border-purple-500'
-                      : 'bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:border-purple-500'
+                    isDark ? 'bg-slate-950/80 border border-slate-800 text-slate-100' : 'bg-slate-50 border border-slate-200 text-slate-900'
                   }`}
                 />
-                {creatorQueryInput && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCreatorQueryInput('');
-                      handleResetAll();
-                    }}
-                    className="absolute right-3 top-3 text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                )}
               </div>
-
-              <button
-                type="submit"
-                className="px-5 py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-black text-xs rounded-2xl shadow hover:opacity-90 cursor-pointer shrink-0"
-              >
+              <button type="submit" className="px-5 py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-black text-xs rounded-2xl shadow cursor-pointer shrink-0">
                 発掘 ➔
               </button>
             </form>
-            <p className="text-[10px] opacity-50">※担当クレジットが含まれる作品のみを抽出</p>
 
-            {/* サジェストボックス */}
             {showSuggestions && artistSuggestions.length > 0 && (
-              <div
-                className={`absolute top-full left-0 right-0 mt-2 rounded-2xl border shadow-2xl backdrop-blur-2xl z-50 overflow-hidden max-h-72 overflow-y-auto ${
-                  isDark
-                    ? 'bg-slate-950/98 border-slate-800/90 divide-y divide-slate-800/60 shadow-purple-950/50'
-                    : 'bg-white/98 border-slate-200 divide-y divide-slate-100 shadow-slate-400/50'
-                }`}
-              >
-                <div
-                  className={`p-2 px-3 text-[10px] font-bold flex items-center justify-between sticky top-0 z-10 backdrop-blur-md ${
-                    isDark ? 'text-slate-400 bg-slate-900/90' : 'text-slate-600 bg-slate-100/90'
-                  }`}
-                >
-                  <span>👤 クリエイター候補</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowSuggestions(false)}
-                    className="text-[10px] text-slate-400 hover:text-slate-200 cursor-pointer"
-                  >
-                    ✕ 閉じる
-                  </button>
-                </div>
-
+              <div className={`absolute top-full left-0 right-0 mt-2 rounded-2xl border shadow-2xl backdrop-blur-2xl z-50 overflow-hidden max-h-72 overflow-y-auto ${
+                isDark ? 'bg-slate-950/98 border-slate-800' : 'bg-white/98 border-slate-200'
+              }`}>
                 {artistSuggestions.map((artist) => (
                   <div
                     key={artist.id}
@@ -546,44 +715,12 @@ function HomeContent() {
                       e.preventDefault();
                       handleSelectArtist(artist);
                     }}
-                    className={`w-full p-2.5 px-3 flex items-center justify-between transition-all cursor-pointer select-none ${
-                      isDark ? 'hover:bg-slate-900/80 text-slate-200' : 'hover:bg-slate-50 text-slate-800'
+                    className={`w-full p-2.5 px-3 flex items-center justify-between transition-all cursor-pointer ${
+                      isDark ? 'hover:bg-slate-900 text-slate-200' : 'hover:bg-slate-50 text-slate-800'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-full bg-slate-800 overflow-hidden flex items-center justify-center shrink-0 border border-slate-700/50">
-                        {artist.pictureUrl ? (
-                          <img
-                            src={artist.pictureUrl}
-                            alt=""
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none';
-                            }}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <span className="text-xs">👤</span>
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold truncate leading-snug">{artist.name}</div>
-                        {artist.additionalNames && (
-                          <div className="text-[9px] opacity-60 truncate max-w-xs">
-                            {artist.additionalNames}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <span
-                      className={`text-[9px] px-2 py-0.5 rounded-full font-bold border shrink-0 ${
-                        isDark
-                          ? 'bg-purple-500/10 text-purple-300 border-purple-500/20'
-                          : 'bg-purple-50 text-purple-700 border-purple-200'
-                      }`}
-                    >
-                      {artist.artistType}
-                    </span>
+                    <div className="text-xs font-bold">{artist.name}</div>
+                    <span className="text-[9px] px-2 py-0.5 rounded-full border bg-purple-500/10 text-purple-300">{artist.artistType}</span>
                   </div>
                 ))}
               </div>
@@ -591,378 +728,62 @@ function HomeContent() {
           </div>
         </section>
 
-        {/* 絞り込み状況バナー */}
-        {urlQuery && (
-          <div
-            className={`p-4 rounded-2xl border flex items-center justify-between backdrop-blur-xl relative z-10 ${
-              urlMode === 'creator'
-                ? isDark
-                  ? 'bg-purple-950/40 border-purple-500/40 text-purple-200'
-                  : 'bg-purple-50 border-purple-300 text-purple-900'
-                : isDark
-                ? 'bg-cyan-950/40 border-cyan-500/40 text-cyan-200'
-                : 'bg-cyan-50 border-cyan-300 text-cyan-900'
-            }`}
-          >
-            <div className="flex items-center gap-2 text-xs">
-              <span>{urlMode === 'creator' ? '👤 参加クリエイター:' : '🎵 検索曲名:'}</span>
-              <strong className="text-sm font-black">{urlQuery}</strong>
-              {urlMode === 'creator' && selectedRole !== 'all' && ROLE_CONFIG[selectedRole] && (
-                <span className="px-2 py-0.5 rounded-full bg-black/20 text-[10px] font-bold border border-white/10">
-                  {ROLE_CONFIG[selectedRole].label}
-                </span>
-              )}
-              {urlMode === 'song' && urlSongType === 'original' && (
-                <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-[10px] font-bold border border-cyan-500/30">
-                  🎵 原曲のみ
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={handleResetAll}
-              className="px-3.5 py-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-900 text-white text-xs font-bold transition-all cursor-pointer border border-white/10"
-            >
-              全曲に戻す ✕
-            </button>
-          </div>
-        )}
-
-        {/* ソート ＆ フィルターパネル */}
-        <section
-          className={`p-5 rounded-3xl border backdrop-blur-xl shadow-lg space-y-4 relative z-10 ${
-            isDark
-              ? 'bg-slate-900/40 border-slate-800/80 shadow-slate-950/40'
-              : 'bg-white/80 border-slate-200/80 shadow-slate-100'
-          }`}
-        >
-          <div className="flex flex-wrap gap-2 items-center">
-            {SORT_OPTIONS.map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => handleSortChange(opt.key)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                  sort === opt.key
-                    ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20'
-                    : isDark
-                    ? 'bg-slate-950/60 text-slate-400 border border-slate-800 hover:text-slate-200'
-                    : 'bg-slate-100 text-slate-600 border border-slate-200 hover:text-slate-900'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-
-          {urlMode === 'song' ? (
-            <div
-              className={`flex flex-wrap gap-2 items-center pt-3 border-t ${
-                isDark ? 'border-slate-800/80' : 'border-slate-100'
-              }`}
-            >
-              <button
-                onClick={() => handleSongTypeChange('all')}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                  urlSongType === 'all'
-                    ? isDark
-                      ? 'bg-white text-slate-950 shadow'
-                      : 'bg-slate-900 text-white shadow'
-                    : isDark
-                    ? 'bg-slate-950/60 text-slate-400 border border-slate-800'
-                    : 'bg-slate-100 text-slate-600 border border-slate-200'
-                }`}
-              >
-                🌟 すべての作品（カバー・歌ってみた含む）
-              </button>
-
-              <button
-                onClick={() => handleSongTypeChange('original')}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer ${
-                  urlSongType === 'original'
-                    ? 'bg-cyan-500 text-slate-950 font-black shadow-md shadow-cyan-500/20 scale-105 border-cyan-400'
-                    : isDark
-                    ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/20'
-                    : 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
-                }`}
-              >
-                🎵 原曲のみ（本家のみに限定）
-              </button>
-            </div>
-          ) : (
-            <div
-              className={`flex flex-wrap gap-2 items-center pt-3 border-t ${
-                isDark ? 'border-slate-800/80' : 'border-slate-100'
-              }`}
-            >
-              <button
-                onClick={() => handleRoleChange('all')}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                  selectedRole === 'all'
-                    ? isDark
-                      ? 'bg-white text-slate-950 shadow'
-                      : 'bg-slate-900 text-white shadow'
-                    : isDark
-                    ? 'bg-slate-950/60 text-slate-400 border border-slate-800'
-                    : 'bg-slate-100 text-slate-600 border border-slate-200'
-                }`}
-              >
-                🌟 すべての職域
-              </button>
-
-              {Object.entries(ROLE_CONFIG).map(([key, config]) => {
-                const active = selectedRole === key;
-                return (
-                  <button
-                    key={key}
-                    onClick={() => handleRoleChange(key)}
-                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer ${
-                      active
-                        ? `${isDark ? config.darkBadge : config.lightBadge} ring-2 ring-cyan-400/50 shadow-sm scale-105`
-                        : `${isDark ? config.darkBadge : config.lightBadge} opacity-70 hover:opacity-100`
-                    }`}
-                  >
-                    {config.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
         {/* 楽曲グリッド */}
         <section className="space-y-6 relative z-10">
-          <div className="flex items-center justify-between text-xs opacity-60 px-2 font-medium">
-            <span>
-              ヒット総数: <strong className="text-cyan-500 font-bold">{totalCount.toLocaleString()}</strong> 件{' '}
-              {totalPages > 1 && `（ページ ${urlPage} / ${totalPages}）`}
-            </span>
-            <span>1ページ {PAGE_SIZE} 件表示</span>
-          </div>
-
           {loading ? (
             <div className="min-h-[35vh] flex flex-col items-center justify-center gap-3 text-slate-400">
               <div className="w-8 h-8 rounded-full border-3 border-cyan-500 border-t-transparent animate-spin"></div>
-              <p className="text-xs font-medium">
-                {urlMode === 'song' ? '楽曲タイトルを検索中...' : 'クリエイター担当作品を厳格抽出中...'}
-              </p>
+              <p className="text-xs font-medium">楽曲を検索中...</p>
             </div>
           ) : filteredSongs.length === 0 ? (
-            <div
-              className={`min-h-[25vh] rounded-3xl border border-dashed flex flex-col items-center justify-center p-8 text-center gap-3 ${
-                isDark ? 'border-slate-800 text-slate-400' : 'border-slate-300 text-slate-600'
-              }`}
-            >
-              <div className="text-2xl mb-1">🔍</div>
-              <p className="text-sm font-bold">
-                {urlQuery ? '条件に一致する楽曲が見つかりませんでした' : '表示できる楽曲がありません'}
-              </p>
-              <p className="text-xs opacity-60">
-                {urlQuery 
-                  ? '検索キーワードや職域フィルターを変更して再度お試しください。' 
-                  : '上の検索窓から曲名やクリエイター名を入力して探索を始めてください。'}
-              </p>
+            <div className={`min-h-[25vh] rounded-3xl border border-dashed flex flex-col items-center justify-center p-8 text-center gap-3 ${isDark ? 'border-slate-800 text-slate-400' : 'border-slate-300 text-slate-600'}`}>
+              <p className="text-sm font-bold">条件に一致する楽曲が見つかりませんでした</p>
             </div>
           ) : (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-                {filteredSongs.map((song) => (
-                  <Link
-                    key={song.id}
-                    href={`/songs/${song.id}`}
-                    onClick={() => {
-                      try {
-                        sessionStorage.setItem(`song_${song.id}`, JSON.stringify(song));
-                      } catch (e) {
-                        console.error(e);
-                      }
-                    }}
-                    className={`group relative flex flex-col rounded-3xl overflow-hidden border transition-all duration-300 transform hover:-translate-y-1.5 shadow-sm hover:shadow-xl ${
-                      isDark
-                        ? 'bg-slate-900/50 hover:bg-slate-900/90 border-slate-800/80 hover:border-cyan-500/40 hover:shadow-cyan-500/10'
-                        : 'bg-white hover:bg-slate-50/90 border-slate-200/90 hover:border-cyan-400 hover:shadow-slate-200'
-                    }`}
-                  >
-                    <div className="relative aspect-video w-full bg-slate-950 overflow-hidden">
-                      {song.thumbUrl ? (
-                        <img
-                          src={song.thumbUrl}
-                          alt={song.title}
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        />
-                      ) : null}
-
-                      <div className="absolute inset-0 -z-10 flex items-center justify-center text-slate-600 text-xs font-mono bg-slate-950">
-                        NO IMAGE
-                      </div>
-
-                      <div className="absolute top-2.5 left-2.5 flex gap-1">
-                        {song.youtubeId && (
-                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-red-500 text-white shadow">
-                            YT
-                          </span>
-                        )}
-                        {song.niconicoId && (
-                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-950/80 text-cyan-400 border border-cyan-500/30">
-                            Nico
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="absolute bottom-2.5 right-2.5">
-                        <span
-                          className={`text-[9px] font-bold px-2 py-0.5 rounded-full border backdrop-blur-md ${
-                            song.isLive
-                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                              : 'bg-slate-950/80 text-slate-300 border-slate-700/80'
-                          }`}
-                        >
-                          {song.isLive ? '🌐 Live' : song.songType}
-                        </span>
-                      </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+              {filteredSongs.map((song) => (
+                <div
+                  key={song.id}
+                  onClick={() => {
+                    setActiveModalSongId(String(song.id));
+                    setActiveModalSongData(song);
+                  }}
+                  className={`group relative flex flex-col rounded-3xl overflow-hidden border transition-all duration-300 transform hover:-translate-y-1.5 shadow-sm hover:shadow-xl cursor-pointer ${
+                    isDark ? 'bg-slate-900/50 hover:bg-slate-900/90 border-slate-800 hover:border-cyan-500/40' : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-cyan-400'
+                  }`}
+                >
+                  <div className="relative aspect-video w-full bg-slate-950 overflow-hidden">
+                    {song.thumbUrl && (
+                      <img src={song.thumbUrl} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    )}
+                  </div>
+                  <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
+                    <div>
+                      <h3 className={`text-sm font-bold line-clamp-2 leading-snug group-hover:text-cyan-400 transition-colors ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {song.title}
+                      </h3>
+                      <p className="text-[11px] opacity-60 truncate mt-1">{song.artistString}</p>
                     </div>
-
-                    <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
-                      <div>
-                        <h3
-                          className={`text-sm font-bold line-clamp-2 leading-snug group-hover:text-cyan-400 transition-colors ${
-                            isDark ? 'text-slate-100' : 'text-slate-900'
-                          }`}
-                        >
-                          {song.title}
-                        </h3>
-                        <p className="text-[11px] opacity-60 truncate mt-1">{song.artistString}</p>
-                      </div>
-
-                      {song.credits && song.credits.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {song.credits.slice(0, 3).map((c, i) => {
-                            const config = ROLE_CONFIG[c.role] || {
-                              darkBadge: 'bg-slate-950 text-slate-400 border-slate-800',
-                              lightBadge: 'bg-slate-100 text-slate-600 border-slate-200',
-                              label: c.role,
-                            };
-                            return (
-                              <span
-                                key={i}
-                                className={`text-[9px] font-semibold px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${
-                                  isDark ? config.darkBadge : config.lightBadge
-                                }`}
-                              >
-                                <span className="opacity-80 font-bold">{config.label.split(' ')[0]}</span>
-                                <span className="truncate max-w-[65px]">{c.creatorName}</span>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      <div
-                        className={`pt-2.5 border-t flex items-center justify-between text-[11px] ${
-                          isDark ? 'border-slate-800/80 text-slate-500' : 'border-slate-100 text-slate-400'
-                        }`}
-                      >
-                        <span>
-                          {song.publishDate
-                            ? new Date(song.publishDate).toLocaleDateString('ja-JP')
-                            : ''}
-                        </span>
-                        <span className="text-cyan-500 font-bold group-hover:translate-x-1 transition-transform flex items-center gap-0.5 text-xs">
-                          詳細 ➔
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-
-              {totalPages > 1 && (
-                <div className="pt-8 pb-4 flex items-center justify-center gap-2 flex-wrap">
-                  <button
-                    onClick={() => changePage(1)}
-                    disabled={urlPage === 1}
-                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      urlPage === 1
-                        ? 'opacity-30 cursor-not-allowed border-transparent'
-                        : isDark
-                        ? 'bg-slate-900 border-slate-800 hover:border-cyan-500'
-                        : 'bg-white border-slate-200 hover:border-cyan-500'
-                    }`}
-                  >
-                    « 最初
-                  </button>
-
-                  <button
-                    onClick={() => changePage(urlPage - 1)}
-                    disabled={urlPage === 1}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      urlPage === 1
-                        ? 'opacity-30 cursor-not-allowed border-transparent'
-                        : isDark
-                        ? 'bg-slate-900 border-slate-800 hover:border-cyan-500'
-                        : 'bg-white border-slate-200 hover:border-cyan-500'
-                    }`}
-                  >
-                    ‹ 前へ
-                  </button>
-
-                  {getPageNumbers().map((num, idx) =>
-                    num === '...' ? (
-                      <span key={`dots-${idx}`} className="px-2 text-xs opacity-40 font-mono">
-                        ...
-                      </span>
-                    ) : (
-                      <button
-                        key={`page-${num}`}
-                        onClick={() => changePage(Number(num))}
-                        className={`w-9 h-9 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                          urlPage === num
-                            ? 'bg-cyan-500 text-slate-950 font-black shadow-lg shadow-cyan-500/20 scale-105'
-                            : isDark
-                            ? 'bg-slate-900/80 border border-slate-800 hover:border-cyan-500/50 text-slate-300'
-                            : 'bg-white border border-slate-200 hover:border-cyan-500 text-slate-700'
-                        }`}
-                      >
-                        {num}
-                      </button>
-                    )
-                  )}
-
-                  <button
-                    onClick={() => changePage(urlPage + 1)}
-                    disabled={urlPage >= totalPages}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      urlPage >= totalPages
-                        ? 'opacity-30 cursor-not-allowed border-transparent'
-                        : isDark
-                        ? 'bg-slate-900 border-slate-800 hover:border-cyan-500'
-                        : 'bg-white border-slate-200 hover:border-cyan-500'
-                    }`}
-                  >
-                    次へ ›
-                  </button>
-
-                  <button
-                    onClick={() => changePage(totalPages)}
-                    disabled={urlPage >= totalPages}
-                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      urlPage >= totalPages
-                        ? 'opacity-30 cursor-not-allowed border-transparent'
-                        : isDark
-                        ? 'bg-slate-900 border-slate-800 hover:border-cyan-500'
-                        : 'bg-white border-slate-200 hover:border-cyan-500'
-                    }`}
-                  >
-                    最後 ({totalPages}) »
-                  </button>
+                  </div>
                 </div>
-              )}
-            </>
+              ))}
+            </div>
           )}
         </section>
       </div>
+
+      {/* モーダル表示 */}
+      {activeModalSongId && (
+        <SongModal
+          songId={activeModalSongId}
+          initialSong={activeModalSongData}
+          onClose={() => {
+            setActiveModalSongId(null);
+            setActiveModalSongData(null);
+          }}
+          isDark={isDark}
+        />
+      )}
     </div>
   );
 }
