@@ -166,6 +166,24 @@ export async function GET(request: Request) {
             if (detailsData.items && Array.isArray(detailsData.items)) {
               ytItems = detailsData.items.map((item: any) => {
                 const channelTitle = item.snippet?.channelTitle || 'Unknown';
+                const cleanQuery = query.trim();
+
+                // ひとつの楽曲に複数の職域（作詞・作曲・MIX・イラスト等）を放射状にぶら下げる
+                const dynamicCredits = [
+                  {
+                    role: 'lyrics',
+                    creatorName: cleanQuery,
+                  },
+                  {
+                    role: 'music',
+                    creatorName: channelTitle,
+                  },
+                  {
+                    role: 'mix',
+                    creatorName: cleanQuery,
+                  },
+                ];
+
                 return {
                   id: `yt_${item.id}`,
                   title: item.snippet?.title || 'Untitled',
@@ -173,11 +191,11 @@ export async function GET(request: Request) {
                     {
                       name: channelTitle,
                       isSupport: false,
-                      roles: ['Producer'],
+                      roles: ['Composer', 'Lyricist'],
                       artist: { id: 0, name: channelTitle, artistType: 'Producer' },
                     },
                   ],
-                  artistString: channelTitle,
+                  artistString: `${channelTitle} / ${cleanQuery}`,
                   songType: 'Original',
                   thumbUrl: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || '',
                   publishDate: item.snippet?.publishedAt || new Date().toISOString(),
@@ -194,12 +212,7 @@ export async function GET(request: Request) {
                   webLinks: [],
                   youtubeId: item.id,
                   niconicoId: undefined,
-                  credits: [
-                    {
-                      role: 'Lyricist',
-                      creatorName: query.trim(),
-                    },
-                  ],
+                  credits: dynamicCredits,
                   viewCount: item.statistics?.viewCount ? parseInt(item.statistics.viewCount, 10) : 0,
                   ratingScore: 0,
                   favoritedTimes: 0,
