@@ -279,12 +279,12 @@ function SongModal({
           )}
         </div>
 
-        {/* タグ表示セクション（クリックで正確にタグ検索が走るように修正） */}
-        {song.tags && song.tags.length > 0 && (
+    {/* タグ表示セクション */}
+        {songAny.tags && songAny.tags.length > 0 && (
           <div className={`pt-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
             <h3 className="text-xs font-bold opacity-60 uppercase tracking-wider mb-3">タグ</h3>
             <div className="flex flex-wrap gap-1.5">
-              {song.tags.map((t: any, idx: number) => {
+              {songAny.tags.map((t: any, idx: number) => {
                 const tagName = typeof t === 'string' ? t : t.tag?.name || t.name || '';
                 const tagId = typeof t === 'object' && (t.tag?.id || t.id) ? String(t.tag?.id || t.id) : '';
                 const tagUrl = tagId ? `/?tagId=${tagId}&page=1` : `/?query=${encodeURIComponent(tagName)}&page=1`;
@@ -307,7 +307,6 @@ function SongModal({
             </div>
           </div>
         )}
-
         {/* 派生ツリー */}
         {detail && (detail.originalSong || (detail.derivedSongs && detail.derivedSongs.length > 0)) && (
           <div className={`pt-4 border-t space-y-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
