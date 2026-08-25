@@ -23,6 +23,7 @@ function sanitizeDescription(description: string = ''): string {
     .slice(0, 1000);
 }
 
+// Gemini APIを使った高精度クレジット抽出 ＆ クリエイター関連性の判断
 async function parseCreditsWithGemini(description: string = '', channelTitle: string = '', query: string = ''): Promise<any[]> {
   const apiKey = process.env.GEMINI_API_KEY;
   const safeDescription = sanitizeDescription(description);
@@ -51,7 +52,7 @@ async function parseCreditsWithGemini(description: string = '', channelTitle: st
 
 【入力情報】
 チャンネル名: ${channelTitle}
-検索クエリ: ${query}
+検索クエリ(関係者である可能性高): ${query}
 概要欄:
 ${safeDescription}
 
@@ -111,11 +112,12 @@ export async function GET(request: Request) {
     const role = searchParams.get('role');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
+    // --- 1. クリエイター検索モード時: VocaDBのAPI判断力に任せた柔軟なアーティストID解決 ---
     if (mode === 'creator' && rawQuery.trim() && !artistId) {
       try {
         const artistSearchUrl = `[https://vocadb.net/api/artists?query=$](https://vocadb.net/api/artists?query=$){encodeURIComponent(
           rawQuery.trim()
-        )}&nameMatchMode=Auto&maxResults=10&lang=Japanese`;
+        )}&nameMatchMode=Auto&maxResults=5&lang=Japanese`;
 
         const aController = new AbortController();
         const aTimer = setTimeout(() => aController.abort(), 2500);
@@ -132,28 +134,9 @@ export async function GET(request: Request) {
         if (aRes.ok) {
           const aData = await aRes.json();
           const items = aData.items || [];
-          const target = rawQuery.trim().toLowerCase();
-
-          let matchedArtist = items.find(
-            (a: any) =>
-              (a.name || '').toLowerCase() === target ||
-              (a.additionalNames || '')
-                .toLowerCase()
-                .split(',')
-                .map((n: string) => n.trim())
-                .includes(target)
-          );
-
-          if (!matchedArtist && items.length > 0) {
-            matchedArtist = items.find(
-              (a: any) =>
-                (a.name || '').toLowerCase().includes(target) ||
-                target.includes((a.name || '').toLowerCase())
-            ) || items[0];
-          }
-
-          if (matchedArtist) {
-            artistId = String(matchedArtist.id);
+          // 辞書を使わず、VocaDBのAPIが返してきた最初の候補（最も関連度が高いとAPIが判断したもの）を自動採用
+          if (items.length > 0) {
+            artistId = String(items[0].id);
           }
         }
       } catch (e) {
@@ -161,6 +144,7 @@ export async function GET(request: Request) {
       }
     }
 
+    // --- 2. VocaDB楽曲検索の実行 ---
     let vocaData: any = { items: [], totalCount: 0 };
     try {
       const vocaParams = new URLSearchParams({
@@ -176,7 +160,7 @@ export async function GET(request: Request) {
       if (mode === 'song' && rawQuery.trim()) {
         vocaParams.set('query', rawQuery.trim());
         vocaParams.set('nameMatchMode', 'Partial');
-      } else if (mode === 'creator' && artistId && !isNaN(Number(artistId))) {
+      } else if (artistId && !isNaN(Number(artistId))) {
         vocaParams.append('artistId[]', artistId);
         vocaParams.set('artistParticipationStatus', 'Everything');
       } else if (rawQuery.trim()) {
@@ -193,7 +177,7 @@ export async function GET(request: Request) {
         vocaParams.set('childTags', 'true');
       }
 
-     const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
+      const vocaUrl = `[https://vocadb.net/api/songs?$](https://vocadb.net/api/songs?$){vocaParams.toString()}`;
       console.log('🌐 VocaDB API Request:', vocaUrl);
 
       const vocaRes = await fetch(vocaUrl, {
@@ -246,6 +230,7 @@ export async function GET(request: Request) {
       };
     });
 
+    // --- 3. YouTube検索の統合判定 ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
     const isPersonalQuery = shouldSearchYouTube(rawQuery);
@@ -325,6 +310,7 @@ export async function GET(request: Request) {
       }
     }
 
+    // --- 4. 職域フィルター ---
     let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
 
     if (mode === 'creator' && rawQuery.trim() && !artistId) {
