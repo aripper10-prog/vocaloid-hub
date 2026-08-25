@@ -100,19 +100,30 @@ useEffect(() => {
       try {
         let currentArtistId = urlArtistId;
 
-      // ★ タグやリンク経由、または手動検索で `artistId` がない場合の賢い自動解決
+    // ★ ボカロP（Producer等）を最優先で選ぶ賢い自動解決
         if (urlMode === 'creator' && urlQuery.trim() && !currentArtistId) {
           try {
             const artists = await searchVocaDBArtists(urlQuery.trim());
             if (artists && artists.length > 0) {
               const target = urlQuery.trim().toLowerCase();
               
-              // ① 名前、または追加名に完全一致、あるいは部分一致するものを最優先で探す
-              const matched = artists.find((a: any) => {
+              // ① 名前または追加名が一致し、かつ artistType が Producer（ボカロP）である人を最優先！
+              let matched = artists.find((a: any) => {
                 const name = (a.name || '').toLowerCase();
                 const addNames = (a.additionalNames || '').toLowerCase();
-                return name === target || addNames.includes(target) || target.includes(name);
-              }) || artists[0]; // フォールバックとして先頭
+                const isProducer = (a.artistType || '').toLowerCase() === 'producer';
+                return isProducer && (name === target || addNames.includes(target) || target.includes(name));
+              });
+
+              // ② それで見つからなければ、単に artistType が Producer の人を優先
+              if (!matched) {
+                matched = artists.find((a: any) => (a.artistType || '').toLowerCase() === 'producer');
+              }
+
+              // ③ それでもダメなら最初の候補
+              if (!matched) {
+                matched = artists[0];
+              }
 
               currentArtistId = String(matched.id);
 
@@ -123,8 +134,7 @@ useEffect(() => {
           } catch (e) {
             console.error('Auto artistId resolution error:', e);
           }
-        }
-        const songTypesParam =
+        }        const songTypesParam =
           urlMode === 'song' && urlSongType === 'original'
             ? 'Original'
             : 'Original,Cover,Remix,Other,MusicPV';
