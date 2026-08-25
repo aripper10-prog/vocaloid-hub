@@ -255,12 +255,17 @@ const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
       };
     });
 
-    // --- 3. YouTube検索の統合判定 ---
+   // --- 3. YouTube検索の統合判定 ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
     const isPersonalQuery = shouldSearchYouTube(rawQuery);
-    const shouldFetchYT = Boolean(rawQuery.trim() && apiKey && (vocaItems.length === 0 || isPersonalQuery || mode === 'creator'));
-
+    
+    // ★ 修正：VocaDBで0件のとき、または個人キーワード（作詞師ari等）、あるいはクリエイターモードのときは確実にYouTubeも調べる
+    const shouldFetchYT = Boolean(
+      rawQuery.trim() && 
+      apiKey && 
+      (vocaItems.length === 0 || isPersonalQuery || mode === 'creator')
+    );
     if (shouldFetchYT) {
       try {
         const exactQuery = `"${rawQuery.trim()}"`;
