@@ -96,7 +96,7 @@ export async function GET(request: Request) {
             const detailsData = await detailsRes.json();
 
             if (detailsData.items && Array.isArray(detailsData.items)) {
-              // フロント側が期待するプロパティ（artistsの構造やPVsなど）を完備させる
+              // フロント側が `.length` などを参照しても絶対に落ちないよう、すべての配列プロパティを安全に定義
               ytItems = detailsData.items.map((item: any) => {
                 const channelTitle = item.snippet?.channelTitle || 'Unknown';
                 return {
@@ -121,6 +121,10 @@ export async function GET(request: Request) {
                       pvId: item.id,
                     },
                   ],
+                  tags: [],
+                  albums: [],
+                  lyrics: [],
+                  webLinks: [],
                   youtubeId: item.id,
                   niconicoId: undefined,
                   credits: [
@@ -130,6 +134,10 @@ export async function GET(request: Request) {
                     },
                   ],
                   viewCount: item.statistics?.viewCount ? parseInt(item.statistics.viewCount, 10) : 0,
+                  ratingScore: 0,
+                  favoritedTimes: 0,
+                  commentCount: 0,
+                  listCount: 0,
                 };
               });
             }
