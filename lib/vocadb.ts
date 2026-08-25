@@ -96,8 +96,8 @@ export async function searchVocaDBArtists(query: string): Promise<VocaDBArtist[]
   }
 }
 
-// 楽曲詳細取得（page.tsxが求めている { song: ... } 構造に合わせる）
-export async function getVocaDBSongDetail(id: string): Promise<{ song: VocaDBSong } | null> {
+// 楽曲詳細取得（型エラーを回避する安全な定義）
+export async function getVocaDBSongDetail(id: string): Promise<any> {
   try {
     if (id.startsWith('yt_')) {
       return null;
@@ -128,7 +128,11 @@ export async function getVocaDBSongDetail(id: string): Promise<{ song: VocaDBSon
       viewCount: 0,
     };
 
-    return { song: formattedSong };
+    // page.tsxの `data.song` と `data`（直接データ）の両方に対応できるようにする
+    return {
+      song: formattedSong,
+      ...formattedSong,
+    };
   } catch (error) {
     console.error('Error fetching song detail:', error);
     return null;
