@@ -113,7 +113,7 @@ export async function GET(request: Request) {
     const role = searchParams.get('role');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
-    // --- 1. クリエイター検索モード時: アーティストIDの自動解決（柔軟化） ---
+    // --- 1. クリエイター検索モード時のみ: アーティストIDの自動解決を実行 ---
     if (mode === 'creator' && rawQuery.trim() && !artistId) {
       try {
         const artistSearchUrl = `[https://vocadb.net/api/artists?query=$](https://vocadb.net/api/artists?query=$){encodeURIComponent(
@@ -137,7 +137,6 @@ export async function GET(request: Request) {
           const items = aData.items || [];
           const target = rawQuery.trim().toLowerCase();
 
-          // ① 完全一致、または追加名に含まれるものを最優先
           let matchedArtist = items.find(
             (a: any) =>
               (a.name || '').toLowerCase() === target ||
@@ -148,7 +147,6 @@ export async function GET(request: Request) {
                 .includes(target)
           );
 
-          // ② それでも見つからない場合、部分一致するものがあればそれを採用
           if (!matchedArtist && items.length > 0) {
             matchedArtist = items.find(
               (a: any) =>
@@ -179,16 +177,19 @@ export async function GET(request: Request) {
         songTypes: songTypes,
       });
 
-      // 曲名検索または入力されたクエリがある場合は最優先でセット
-      if (rawQuery.trim() && !artistId) {
+      // モードに応じて検索条件を明確に分岐
+      if (mode === 'song' && rawQuery.trim()) {
+        // 曲名検索の場合は純粋にクエリで検索
         vocaParams.set('query', rawQuery.trim());
         vocaParams.set('nameMatchMode', 'Partial');
-      }
-
-      // クリエイターモードかつartistIdがある場合
-      if (artistId && !isNaN(Number(artistId))) {
+      } else if (mode === 'creator' && artistId && !isNaN(Number(artistId))) {
+        // クリエイター検索かつアーティストIDがある場合はIDで絞り込み
         vocaParams.append('artistId[]', artistId);
         vocaParams.set('artistParticipationStatus', 'Everything');
+      } else if (rawQuery.trim()) {
+        // フォールバック用のクエリ検索
+        vocaParams.set('query', rawQuery.trim());
+        vocaParams.set('nameMatchMode', 'Partial');
       }
 
       if (role && role !== 'all' && VOCADB_ROLE_MAP[role]) {
