@@ -11,6 +11,15 @@ const VOCADB_ROLE_MAP: Record<string, string> = {
   dance: 'Other',
 };
 
+// YouTube検索を補助的に発動させる例外的なキーワード（必要に応じて追加・調整可能）
+// ここに含まれる、またはVocaDBでヒットしにくい個人のペンネームなどのときだけYouTubeを叩く
+function shouldSearchYouTube(query: string): boolean {
+  const q = query.trim().toLowerCase();
+  // 例: 「作詞師ari」や「ari」などの個人のペンネーム・サークル名などが含まれる場合
+  const personalKeywords = ['作詞師ari', 'ari', 'alice and lemonade'];
+  return personalKeywords.some((keyword) => q.includes(keyword));
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -24,8 +33,52 @@ export async function GET(request: Request) {
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
 
-    // --- 1. YouTube検索（完全一致） ---
-    if (query.trim() && apiKey) {
+    // --- 1. VocaDB検索を先に行う ---
+    let vocaData: any = { items: [], totalCount: 0 };
+    try {
+      const vocaParams = new URLSearchParams({
+        sort: sort,
+        maxResults: maxResults,
+        start: start,
+        getTotalCount: 'true',
+        fields: 'Artists,PVs,ThumbUrl',
+        lang: 'Japanese',
+        songTypes: songTypes,
+      });
+
+      if (query.trim()) {
+        vocaParams.set('query', query.trim());
+        vocaParams.set('nameMatchMode', 'Auto');
+      }
+
+      if (role && VOCADB_ROLE_MAP[role]) {
+        vocaParams.append('artistRole', VOCADB_ROLE_MAP[role]);
+      }
+
+      const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
+      const vocaRes = await fetch(vocaUrl, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VocaHub/1.0',
+        },
+        cache: 'no-store',
+      });
+
+      if (vocaRes.ok) {
+        vocaData = await vocaRes.json();
+      }
+    } catch (vocaErr) {
+      console.error('VocaDB fetch error:', vocaErr);
+    }
+
+    const vocaItems = vocaData.items || [];
+
+    // --- 2. YouTube検索の判定 ---
+    // 「VocaDBの検索結果が少ない」かつ「個人のペンネーム（作詞師ariなど）での検索である」場合のみYouTubeを補助発動
+    const isPersonalQuery = shouldSearchYouTube(query);
+    const shouldFetchYT = query.trim() && apiKey && (vocaItems.length === 0 || isPersonalQuery);
+
+    if (shouldFetchYT) {
       try {
         const exactQuery = `"${query.trim()}"`;
         const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
@@ -73,51 +126,12 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 2. VocaDB検索（柔軟にあいまい検索） ---
-    let vocaData: any = { items: [], totalCount: 0 };
-    try {
-      const vocaParams = new URLSearchParams({
-        sort: sort,
-        maxResults: maxResults,
-        start: start,
-        getTotalCount: 'true',
-        fields: 'Artists,PVs,ThumbUrl',
-        lang: 'Japanese',
-        songTypes: songTypes,
-      });
+    // 重複を避けてマージ
+    const existingIds = new Set(vocaItems.map((item: any) => String(item.id)));
+    const uniqueYtItems = ytItems.filter((yt: any) => !existingIds.has(String(yt.id)));
 
-      if (query.trim()) {
-        vocaParams.set('query', query.trim());
-        vocaParams.set('nameMatchMode', 'Auto');
-      }
-
-      if (role && VOCADB_ROLE_MAP[role]) {
-        vocaParams.append('artistRole', VOCADB_ROLE_MAP[role]);
-      }
-
-      const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
-      const vocaRes = await fetch(vocaUrl, {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VocaHub/1.0',
-        },
-        cache: 'no-store',
-      });
-
-      if (vocaRes.ok) {
-        vocaData = await vocaRes.json();
-      }
-    } catch (vocaErr) {
-      console.error('VocaDB fetch error:', vocaErr);
-    }
-
-    // データの合体（YouTubeの曲を先頭に、VocaDB/ニコニコの曲を後ろに結合）
-    const vocaItems = vocaData.items || [];
-    const existingIds = new Set(ytItems.map((item) => String(item.id)));
-    const uniqueVocaItems = vocaItems.filter((v: any) => !existingIds.has(String(v.id)));
-
-    const mergedItems = [...ytItems, ...uniqueVocaItems];
-    const totalCount = (vocaData.totalCount || vocaItems.length) + ytItems.length;
+    const mergedItems = [...vocaItems, ...uniqueYtItems];
+    const totalCount = (vocaData.totalCount || vocaItems.length) + uniqueYtItems.length;
 
     return NextResponse.json(
       {
