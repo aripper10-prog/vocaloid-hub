@@ -84,7 +84,7 @@ function HomeContent() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestBoxRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+useEffect(() => {
     if (urlMode === 'song') {
       setSongQueryInput(urlQuery);
       setCreatorQueryInput('');
@@ -98,6 +98,24 @@ function HomeContent() {
     const fetchSongs = async () => {
       setLoading(true);
       try {
+        let currentArtistId = urlArtistId;
+
+        // ★ タグやリンク経由で `artistId` がない状態で飛んできた場合、ここで自動解決してURLをキレイに補完する
+        if (urlMode === 'creator' && urlQuery.trim() && !currentArtistId) {
+          try {
+            const artists = await searchVocaDBArtists(urlQuery.trim());
+            if (artists && artists.length > 0) {
+              currentArtistId = String(artists[0].id);
+              // URLもartistId付きのものに自動アップデートする
+              const params = new URLSearchParams(searchParams.toString());
+              params.set('artistId', currentArtistId);
+              router.replace(`/?${params.toString()}`);
+            }
+          } catch (e) {
+            console.error('Auto artistId resolution error:', e);
+          }
+        }
+
         const songTypesParam =
           urlMode === 'song' && urlSongType === 'original'
             ? 'Original'
@@ -109,7 +127,7 @@ function HomeContent() {
           sort,
           urlPage,
           PAGE_SIZE,
-          urlArtistId,
+          currentArtistId, // 補完されたIDを使う
           urlRole,
           songTypesParam
         );
@@ -132,7 +150,6 @@ function HomeContent() {
       isMounted = false;
     };
   }, [urlMode, urlQuery, urlRole, urlArtistId, urlPage, urlSongType, sort]);
-
   useEffect(() => {
     if (!creatorQueryInput.trim() || urlArtistId) {
       setArtistSuggestions([]);
