@@ -24,7 +24,6 @@ export async function GET(request: Request) {
     const role = searchParams.get('role');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
-    // クリエイター検索モード時: アーティストIDの自動解決
     if (mode === 'creator' && query.trim() && !artistId) {
       try {
         const artistSearchUrl = `https://vocadb.net/api/artists?query=${encodeURIComponent(
@@ -74,7 +73,7 @@ export async function GET(request: Request) {
       maxResults: maxResults,
       start: start,
       getTotalCount: 'true',
-      fields: 'Artists,PVs,ThumbUrl',
+      fields: 'Artists,PVs,ThumbUrl,Tags',
       lang: 'Japanese',
       songTypes: songTypes,
     });
@@ -122,7 +121,16 @@ export async function GET(request: Request) {
     }
 
     const data = await res.json();
-    let items = data.items || [];
+    let rawItems = data.items || [];
+
+    // フロント側が配列の .length 等で絶対にクラッシュしないよう、各アイテムに必須の配列プロパティを安全に保証
+    const items = rawItems.map((item: any) => ({
+      ...item,
+      artists: Array.isArray(item.artists) ? item.artists : [],
+      pvs: Array.isArray(item.pvs) ? item.pvs : [],
+      tags: Array.isArray(item.tags) ? item.tags : [],
+      artistsString: item.artistString || item.artistsString || '',
+    }));
 
     return NextResponse.json({
       items,
