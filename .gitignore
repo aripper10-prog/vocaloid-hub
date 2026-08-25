@@ -1,0 +1,7 @@
+node_modules
+# See https://help.github.com/articles/ignore-files/ for more detaiL
+/node_modules
+/.next
+/out
+.env*
+!.env.example
