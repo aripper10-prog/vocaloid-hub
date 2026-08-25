@@ -12,49 +12,49 @@ const ROLE_CONFIG: Record<
   { label: string; icon: string; darkBadge: string; lightBadge: string }
 > = {
   music: {
-    label: '作曲 / 編曲',
+    label: '🎵 作曲 / 編曲',
     icon: '🎵',
     darkBadge: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30',
     lightBadge: 'bg-cyan-50 text-cyan-700 border-cyan-200',
   },
   lyrics: {
-    label: '作詞',
+    label: '✍️ 作詞',
     icon: '✍️',
     darkBadge: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
     lightBadge: 'bg-purple-50 text-purple-700 border-purple-200',
   },
   tuning: {
-    label: '調声',
+    label: '🎛️ 調声',
     icon: '🎛️',
     darkBadge: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
     lightBadge: 'bg-amber-50 text-amber-700 border-amber-200',
   },
   singer: {
-    label: 'ボーカル',
+    label: '🎙️ ボーカル',
     icon: '🎙️',
     darkBadge: 'bg-pink-500/10 text-pink-300 border-pink-500/30',
     lightBadge: 'bg-pink-50 text-pink-700 border-pink-200',
   },
   mix: {
-    label: 'MIX / Mastering',
+    label: '🎧 MIX / Mastering',
     icon: '🎧',
     darkBadge: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30',
     lightBadge: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   },
   illust: {
-    label: 'イラスト',
+    label: '🎨 イラスト',
     icon: '🎨',
     darkBadge: 'bg-orange-500/10 text-orange-300 border-orange-500/30',
     lightBadge: 'bg-orange-50 text-orange-700 border-orange-200',
   },
   movie: {
-    label: '動画・映像',
+    label: '🎬 動画・映像',
     icon: '🎬',
     darkBadge: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
     lightBadge: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   },
   dance: {
-    label: '振付・ダンス',
+    label: '💃 振付・ダンス',
     icon: '💃',
     darkBadge: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
     lightBadge: 'bg-rose-50 text-rose-700 border-rose-200',
@@ -280,7 +280,7 @@ function SongModal({
           )}
         </div>
 
-        {/* タグ表示セクション（タグ名を用いた安定したクエリ検索として実装） */}
+        {/* タグ表示セクション */}
         {songAny.tags && songAny.tags.length > 0 && (
           <div className={`pt-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
             <h3 className="text-xs font-bold opacity-60 uppercase tracking-wider mb-3">タグ</h3>
@@ -349,11 +349,14 @@ function HomeContent() {
   const urlMode = (searchParams.get('mode') as 'song' | 'creator') || 'song';
   const urlQuery = searchParams.get('query') || searchParams.get('q') || '';
   
+  // ★ 職域フィルタ用パラメータ
   const urlRole = searchParams.get('role') || 'all';
   const [selectedRole, setSelectedRole] = useState(urlRole);
 
   const urlArtistId = searchParams.get('artistId') || '';
   const urlPage = parseInt(searchParams.get('page') || '1', 10);
+  
+  // ★ 原曲フィルタ用パラメータ
   const urlSongType = searchParams.get('songType') || 'all';
 
   const [songQueryInput, setSongQueryInput] = useState(urlMode === 'song' ? urlQuery : '');
@@ -420,12 +423,12 @@ function HomeContent() {
           }
         }
 
+        // ★ 原曲フィルタの反映
         const songTypesParam =
           urlMode === 'song' && urlSongType === 'original'
             ? 'Original'
             : 'Original,Cover,Remix,Other,MusicPV';
 
-        // searchVocaDBSongs の定義に完全一致する引数のみを渡す
         const result = await searchVocaDBSongs(
           urlQuery,
           urlMode,
@@ -544,6 +547,7 @@ function HomeContent() {
     router.replace(`/?${params.toString()}`);
   };
 
+  // ★ 職域フィルタ変更ハンドラ
   const handleRoleChange = (role: string) => {
     setSelectedRole(role);
     const params = new URLSearchParams(searchParams.toString());
@@ -551,6 +555,7 @@ function HomeContent() {
     router.replace(`/?${params.toString()}`);
   };
 
+  // ★ 原曲フィルタ変更ハンドラ
   const handleSongTypeChange = (type: string) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set('songType', type);
@@ -562,7 +567,7 @@ function HomeContent() {
     setSort(newSort);
   };
 
-  // --- 手元（メモリ上）での厳格なフィルタリング ---
+  // --- ★ 手元での厳格なフィルタリング（原曲フィルタ ＆ 職域フィルタの適用） ---
   const filteredSongs = songs.filter((song) => {
     let nameMatched = true;
     if (urlMode === 'creator' && urlQuery.trim()) {
@@ -578,7 +583,8 @@ function HomeContent() {
 
     if (!nameMatched) return false;
 
-    if (selectedRole !== 'all') {
+    // ★ 職域フィルタ（role）の厳格な手元適用
+    if (urlMode === 'creator' && selectedRole !== 'all') {
       const credits = song.credits || [];
       const artists = song.artists || [];
       
@@ -754,6 +760,89 @@ function HomeContent() {
               </div>
             )}
           </div>
+        </section>
+
+        {/* ★ ソート ＆ フィルターパネル（原曲フィルタ・職域フィルタを完全復活） */}
+        <section
+          className={`p-5 rounded-3xl border backdrop-blur-xl shadow-lg space-y-4 relative z-10 ${
+            isDark ? 'bg-slate-900/40 border-slate-800/80' : 'bg-white/80 border-slate-200/80'
+          }`}
+        >
+          <div className="flex flex-wrap gap-2 items-center">
+            {SORT_OPTIONS.map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => handleSortChange(opt.key)}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                  sort === opt.key
+                    ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20'
+                    : isDark
+                    ? 'bg-slate-950/60 text-slate-400 border border-slate-800 hover:text-slate-200'
+                    : 'bg-slate-100 text-slate-600 border border-slate-200 hover:text-slate-900'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* 曲名検索モード時の「原曲フィルタ」 */}
+          {urlMode === 'song' ? (
+            <div className={`flex flex-wrap gap-2 items-center pt-3 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-100'}`}>
+              <button
+                onClick={() => handleSongTypeChange('all')}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                  urlSongType === 'all'
+                    ? isDark ? 'bg-white text-slate-950 shadow' : 'bg-slate-900 text-white shadow'
+                    : isDark ? 'bg-slate-950/60 text-slate-400 border border-slate-800' : 'bg-slate-100 text-slate-600 border border-slate-200'
+                }`}
+              >
+                🌟 すべての作品（カバー・歌ってみた含む）
+              </button>
+
+              <button
+                onClick={() => handleSongTypeChange('original')}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer ${
+                  urlSongType === 'original'
+                    ? 'bg-cyan-500 text-slate-950 font-black shadow-md shadow-cyan-500/20 scale-105 border-cyan-400'
+                    : isDark ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/20' : 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
+                }`}
+              >
+                🎵 原曲のみ（本家のみに限定）
+              </button>
+            </div>
+          ) : (
+            /* クリエイター検索モード時の「職域フィルタ」 */
+            <div className={`flex flex-wrap gap-2 items-center pt-3 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-100'}`}>
+              <button
+                onClick={() => handleRoleChange('all')}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                  selectedRole === 'all'
+                    ? isDark ? 'bg-white text-slate-950 shadow' : 'bg-slate-900 text-white shadow'
+                    : isDark ? 'bg-slate-950/60 text-slate-400 border border-slate-800' : 'bg-slate-100 text-slate-600 border border-slate-200'
+                }`}
+              >
+                🌟 すべての職域
+              </button>
+
+              {Object.entries(ROLE_CONFIG).map(([key, config]) => {
+                const active = selectedRole === key;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => handleRoleChange(key)}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer ${
+                      active
+                        ? `${isDark ? config.darkBadge : config.lightBadge} ring-2 ring-cyan-400/50 shadow-sm scale-105`
+                        : `${isDark ? config.darkBadge : config.lightBadge} opacity-70 hover:opacity-100`
+                    }`}
+                  >
+                    {config.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* 楽曲グリッド */}
