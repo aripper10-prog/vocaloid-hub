@@ -127,12 +127,11 @@ export async function GET(request: Request) {
       totalCount = data.totalCount || items.length;
     }
 
-    // ★ VocaDBの結果が少ない、あるいは名前検索・クリエイター検索でヒットを補強したい場合、YouTubeオンデマンド検索をマージ
-    if (query.trim() && items.length < 5) {
+  // ★ 常にVocaDBとYouTubeの両方から検索してマージする
+    if (query.trim()) {
       try {
         const ytResults = await searchYouTubeOnDemand(query.trim());
         if (ytResults && ytResults.length > 0) {
-          // 重複を防ぎつつYouTubeの結果をマージ
           const existingIds = new Set(items.map(item => String(item.id)));
           const uniqueYtItems = ytResults.filter(yt => !existingIds.has(String(yt.id)));
           items = [...items, ...uniqueYtItems];
