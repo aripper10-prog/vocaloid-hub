@@ -1,5 +1,13 @@
 import { NextResponse } from 'next/server';
-import { API_ENDPOINTS } from '@/lib/endpoints'; // ← さっき作った定数ファイルをインポート
+
+// 外部APIのエンドポイントをファイル内に安全に直定義（ファイル分割によるモジュール迷子を防ぐ）
+const API_ENDPOINTS = {
+  VOCADB_SONGS: 'https://vocadb.net/api/songs',
+  VOCADB_ARTISTS: 'https://vocadb.net/api/artists',
+  GEMINI_FLASH: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+  YOUTUBE_SEARCH: 'https://www.googleapis.com/youtube/v3/search',
+  YOUTUBE_VIDEOS: 'https://www.googleapis.com/youtube/v3/videos',
+};
 
 const VOCADB_ROLE_MAP: Record<string, string> = {
   music: 'Composer',
