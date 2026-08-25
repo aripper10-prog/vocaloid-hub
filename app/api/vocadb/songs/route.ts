@@ -26,7 +26,7 @@ function sanitizeDescription(description: string = ''): string {
     .slice(0, 1000);
 }
 
-// クレジット抽出 ＆ 関連度判定
+// クレジット抽出 ＆ 関連度判定（ノイズだけを弾く寛容なガード）
 async function parseCreditsWithGemini(
   description: string = '', 
   channelTitle: string = '', 
@@ -102,7 +102,7 @@ async function parseCreditsWithGemini(
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const query = searchParams.get('query') || searchParams.get('q') || ''; // ← 修正完了
+    const query = searchParams.get('query') || searchParams.get('q') || '';
     const mode = searchParams.get('mode') || 'song';
     const sort = searchParams.get('sort') || 'PublishDate';
     const maxResults = searchParams.get('maxResults') || '48';
@@ -248,15 +248,15 @@ export async function GET(request: Request) {
       };
     });
 
-    // --- 3. YouTube検索の統合判定 ---
+    // --- 3. YouTube検索の統合判定（柔軟なキーワード検索に変更） ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
     const shouldFetchYT = Boolean(query.trim() && apiKey && (vocaItems.length === 0 || mode === 'creator'));
 
     if (shouldFetchYT) {
       try {
-        const exactQuery = '"' + query.trim() + '"';
-        const ytUrl = API_ENDPOINTS.YOUTUBE_SEARCH + '?part=snippet&type=video&q=' + encodeURIComponent(exactQuery) + '&maxResults=20&key=' + apiKey;
+        // 二重クォーテーションを外し、柔軟なキーワード検索にする
+        const ytUrl = API_ENDPOINTS.YOUTUBE_SEARCH + '?part=snippet&type=video&q=' + encodeURIComponent(query.trim()) + '&maxResults=20&key=' + apiKey;
 
         const ytRes = await fetch(ytUrl);
         const ytData = await ytRes.json();
