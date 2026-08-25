@@ -10,14 +10,11 @@ export async function GET(request: Request) {
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
     let items: any[] = [];
-    let totalCount = 0;
-
     const apiKey = process.env.YOUTUBE_API_KEY;
 
-    // 1. YouTube Data API検索（完全一致クエリで余計な関連ヒットを排除）
+    // --- 1. YouTube Data API検索（YouTube側の作品を回収） ---
     if (query.trim() && apiKey) {
       try {
-        // ダブルクォーテーションで囲むことでYouTube側に完全一致を強制する
         const exactQuery = `"${query.trim()}"`;
         const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
           exactQuery
@@ -66,7 +63,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // 2. VocaDB検索
+    // --- 2. VocaDB / ニコニコ連携検索（もともと動いていたニコニコ等の作品を回収） ---
     try {
       const vocaParams = new URLSearchParams({
         sort: sort,
@@ -79,6 +76,7 @@ export async function GET(request: Request) {
       });
 
       if (query.trim()) {
+        // VocaDB側にはダブルクォーテーションを付けず、通常の柔軟な検索として投げる
         vocaParams.set('query', query.trim());
         vocaParams.set('nameMatchMode', 'Auto');
       }
@@ -95,17 +93,21 @@ export async function GET(request: Request) {
       if (vocaRes.ok) {
         const vocaData = await vocaRes.json();
         const vocaItems = vocaData.items || [];
-        items = [...items, ...vocaItems];
-        totalCount = items.length;
+
+        // IDの重複を防ぎながら、YouTubeの結果とニコニコ（VocaDB）の結果を合体
+        const existingIds = new Set(items.map(item => item.id));
+        const uniqueVocaItems = vocaItems.filter((v: any) => !existingIds.has(String(v.id)));
+
+        items = [...items, ...uniqueVocaItems];
       }
     } catch (vocaErr) {
-      console.error('VocaDB fetch error:', vocaErr);
+      console.error('VocaDB/Nico fetch error:', vocaErr);
     }
 
     return NextResponse.json(
       {
         items,
-        totalCount: totalCount || items.length,
+        totalCount: items.length,
       },
       {
         headers: {
