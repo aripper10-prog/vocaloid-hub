@@ -102,7 +102,8 @@ ${safeDescription}
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const query = searchParams.get('query') || '';
+    const query = searchParams.get('query'] || searchParams.get('q') || '';
+    const rawQuery = searchParams.get('query') || '';
     const mode = searchParams.get('mode') || 'song';
     const sort = searchParams.get('sort') || 'PublishDate';
     const maxResults = searchParams.get('maxResults') || '48';
@@ -113,10 +114,10 @@ export async function GET(request: Request) {
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
     // --- 1. クリエイター検索モード時: アーティストIDの自動解決 ---
-    if (mode === 'creator' && query.trim() && !artistId) {
+    if (mode === 'creator' && rawQuery.trim() && !artistId) {
       try {
         const artistSearchUrl = `[https://vocadb.net/api/artists?query=$](https://vocadb.net/api/artists?query=$){encodeURIComponent(
-          query.trim()
+          rawQuery.trim()
         )}&nameMatchMode=Auto&maxResults=10&lang=Japanese`;
 
         const aController = new AbortController();
@@ -134,7 +135,7 @@ export async function GET(request: Request) {
         if (aRes.ok) {
           const aData = await aRes.json();
           const items = aData.items || [];
-          const target = query.trim().toLowerCase();
+          const target = rawQuery.trim().toLowerCase();
 
           const exactMatch = items.find(
             (a: any) =>
@@ -168,17 +169,16 @@ export async function GET(request: Request) {
         songTypes: songTypes,
       });
 
-      if (mode === 'song' && query.trim()) {
-        vocaParams.set('query', query.trim());
+      // 曲名検索または名前ベースの検索の場合
+      if (rawQuery.trim()) {
+        vocaParams.set('query', rawQuery.trim());
         vocaParams.set('nameMatchMode', 'Auto');
       }
 
+      // アーティストIDが特定できている場合は優先して追加
       if (artistId && !isNaN(Number(artistId))) {
         vocaParams.append('artistId[]', artistId);
         vocaParams.set('artistParticipationStatus', 'Everything');
-      } else if (mode === 'creator' && query.trim()) {
-        vocaParams.set('query', query.trim());
-        vocaParams.set('nameMatchMode', 'Auto');
       }
 
       if (role && role !== 'all' && VOCADB_ROLE_MAP[role]) {
@@ -244,12 +244,12 @@ export async function GET(request: Request) {
     // --- 3. YouTube検索の統合判定 ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
-    const isPersonalQuery = shouldSearchYouTube(query);
-    const shouldFetchYT = Boolean(query.trim() && apiKey && (vocaItems.length === 0 || isPersonalQuery || mode === 'creator'));
+    const isPersonalQuery = shouldSearchYouTube(rawQuery);
+    const shouldFetchYT = Boolean(rawQuery.trim() && apiKey && (vocaItems.length === 0 || isPersonalQuery || mode === 'creator'));
 
     if (shouldFetchYT) {
       try {
-        const exactQuery = `"${query.trim()}"`;
+        const exactQuery = `"${rawQuery.trim()}"`;
         const ytUrl = `[https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=$](https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=$){encodeURIComponent(
           exactQuery
         )}&maxResults=20&key=${apiKey}`;
@@ -274,7 +274,7 @@ export async function GET(request: Request) {
                   const channelTitle = item.snippet?.channelTitle || 'Unknown';
                   const description = item.snippet?.description || '';
                   
-                  const parsedCredits = await parseCreditsWithGemini(description, channelTitle, query);
+                  const parsedCredits = await parseCreditsWithGemini(description, channelTitle, rawQuery);
 
                   return {
                     id: `yt_${item.id}`,
@@ -321,11 +321,11 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 4. 職域フィルター ---
+    // --- 4. 職域フィルター（アーティストIDですでに絞り込まれている場合は過剰に弾かないように配慮） ---
     let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
 
-    if (mode === 'creator' && query.trim()) {
-      const targetQuery = query.trim().toLowerCase();
+    if (mode === 'creator' && rawQuery.trim() && !artistId) {
+      const targetQuery = rawQuery.trim().toLowerCase();
 
       allItems = allItems.filter((item: any) => {
         const credits = item.credits || [];
