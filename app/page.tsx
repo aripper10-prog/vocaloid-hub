@@ -131,7 +131,6 @@ function SongModal({
     loadData();
   }, [songId]);
 
-  // モーダル背景クリックで閉じる
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
       onClose();
@@ -164,7 +163,6 @@ function SongModal({
           isDark ? 'bg-[#0b101b] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
         }`}
       >
-        {/* 閉じるボタン */}
         <div className="flex items-center justify-between sticky top-0 z-20 pb-3 border-b backdrop-blur-md -mx-6 -mt-6 px-6 pt-6 bg-inherit">
           <span className="text-xs font-bold opacity-60">楽曲詳細プレイヤー</span>
           <button
@@ -258,6 +256,7 @@ function SongModal({
                   <a
                     key={i}
                     href={searchUrl}
+                    onClick={() => onClose()}
                     className={`group p-3 rounded-2xl border flex items-center justify-between transition-all ${
                       isDark
                         ? 'bg-slate-950/60 border-slate-800 hover:border-cyan-500/50 hover:bg-slate-900'
@@ -279,6 +278,35 @@ function SongModal({
             <p className="text-xs opacity-50">クレジット情報が登録されていません。</p>
           )}
         </div>
+
+        {/* タグ表示セクション（クリックで正確にタグ検索が走るように修正） */}
+        {song.tags && song.tags.length > 0 && (
+          <div className={`pt-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+            <h3 className="text-xs font-bold opacity-60 uppercase tracking-wider mb-3">タグ</h3>
+            <div className="flex flex-wrap gap-1.5">
+              {song.tags.map((t: any, idx: number) => {
+                const tagName = typeof t === 'string' ? t : t.tag?.name || t.name || '';
+                const tagId = typeof t === 'object' && (t.tag?.id || t.id) ? String(t.tag?.id || t.id) : '';
+                const tagUrl = tagId ? `/?tagId=${tagId}&page=1` : `/?query=${encodeURIComponent(tagName)}&page=1`;
+
+                return (
+                  <a
+                    key={idx}
+                    href={tagUrl}
+                    onClick={() => onClose()}
+                    className={`text-[10px] font-bold px-3 py-1 rounded-full border transition-all ${
+                      isDark
+                        ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/20'
+                        : 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
+                    }`}
+                  >
+                    #{tagName}
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* 派生ツリー */}
         {detail && (detail.originalSong || (detail.derivedSongs && detail.derivedSongs.length > 0)) && (
@@ -328,6 +356,10 @@ function HomeContent() {
   const urlPage = parseInt(searchParams.get('page') || '1', 10);
   const urlSongType = searchParams.get('songType') || 'all';
 
+  // タグ検索用パラメータの取得
+  const urlTagId = searchParams.get('tagId') || '';
+  const urlTag = searchParams.get('tag') || '';
+
   const [songQueryInput, setSongQueryInput] = useState(urlMode === 'song' ? urlQuery : '');
   const [creatorQueryInput, setCreatorQueryInput] = useState(urlMode === 'creator' ? urlQuery : '');
 
@@ -336,7 +368,6 @@ function HomeContent() {
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState('PublishDate');
 
-  // モーダル表示用のステート
   const [activeModalSongId, setActiveModalSongId] = useState<string | null>(null);
   const [activeModalSongData, setActiveModalSongData] = useState<VocaDBSong | null>(null);
 
@@ -406,7 +437,9 @@ function HomeContent() {
           PAGE_SIZE,
           currentArtistId,
           'all',
-          songTypesParam
+          songTypesParam,
+          urlTagId,
+          urlTag
         );
 
         if (isMounted) {
@@ -427,7 +460,7 @@ function HomeContent() {
     return () => {
       isMounted = false;
     };
-  }, [urlMode, urlQuery, urlArtistId, urlPage, urlSongType, sort]);
+  }, [urlMode, urlQuery, urlArtistId, urlPage, urlSongType, sort, urlTagId, urlTag]);
 
   useEffect(() => {
     if (!creatorQueryInput.trim() || urlArtistId) {
