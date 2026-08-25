@@ -17,14 +17,12 @@ function shouldSearchYouTube(query: string): boolean {
   return personalKeywords.some((keyword) => q.includes(keyword));
 }
 
-// 【安全対策1】概要欄をサニタイズ（プロンプトインジェクション対策として長すぎるテキストや特殊な指示文をカット）
 function sanitizeDescription(description: string = ''): string {
   return description
-    .replace(/```/g, '') // バッククォートを除去
-    .slice(0, 1000);     // 長すぎる概要欄は最初の1000文字に制限
+    .replace(/```/g, '')
+    .slice(0, 1000);
 }
 
-// Gemini APIを使った高精度クレジット抽出 ＆ 職域判定（安全対策強化版・型エラー回避のためany[]に修正）
 async function parseCreditsWithGemini(description: string = '', channelTitle: string = '', query: string = ''): Promise<any[]> {
   const apiKey = process.env.GEMINI_API_KEY;
   const safeDescription = sanitizeDescription(description);
@@ -169,16 +167,14 @@ export async function GET(request: Request) {
         songTypes: songTypes,
       });
 
-      // 曲名検索または名前ベースの検索の場合
-      if (rawQuery.trim()) {
-        vocaParams.set('query', rawQuery.trim());
-        vocaParams.set('nameMatchMode', 'Auto');
-      }
-
-      // アーティストIDが特定できている場合は優先して追加
+      // ★ 超重要：artistIdがすでに特定できている場合は、余計なqueryを渡さずartistIdで完全に引く
       if (artistId && !isNaN(Number(artistId))) {
         vocaParams.append('artistId[]', artistId);
         vocaParams.set('artistParticipationStatus', 'Everything');
+      } else if (rawQuery.trim()) {
+        // アーティストIDがない場合のみ、通常のクエリ検索を行う
+        vocaParams.set('query', rawQuery.trim());
+        vocaParams.set('nameMatchMode', 'Auto');
       }
 
       if (role && role !== 'all' && VOCADB_ROLE_MAP[role]) {
