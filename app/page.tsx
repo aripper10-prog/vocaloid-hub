@@ -65,9 +65,12 @@ function HomeContent() {
   const { theme, toggleTheme } = useTheme();
 
   const urlMode = (searchParams.get('mode') as 'song' | 'creator') || 'song';
-  // API側が 'query' で受け取るため、URL上のクエリパラメータも 'query' に統一
   const urlQuery = searchParams.get('query') || searchParams.get('q') || '';
+  
+  // ★ 職域フィルター（role）はサーバーに送らず、画面側のステート（手元フィルタ）として管理
   const urlRole = searchParams.get('role') || 'all';
+  const [selectedRole, setSelectedRole] = useState(urlRole);
+
   const urlArtistId = searchParams.get('artistId') || '';
   const urlPage = parseInt(searchParams.get('page') || '1', 10);
   const urlSongType = searchParams.get('songType') || 'all';
@@ -84,7 +87,12 @@ function HomeContent() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestBoxRef = useRef<HTMLDivElement>(null);
 
-useEffect(() => {
+  // URLの role が変わったらステート側も同期
+  useEffect(() => {
+    setSelectedRole(urlRole);
+  }, [urlRole]);
+
+  useEffect(() => {
     if (urlMode === 'song') {
       setSongQueryInput(urlQuery);
       setCreatorQueryInput('');
@@ -100,14 +108,12 @@ useEffect(() => {
       try {
         let currentArtistId = urlArtistId;
 
-    // ★ ボカロP（Producer等）を最優先で選ぶ賢い自動解決
         if (urlMode === 'creator' && urlQuery.trim() && !currentArtistId) {
           try {
             const artists = await searchVocaDBArtists(urlQuery.trim());
             if (artists && artists.length > 0) {
               const target = urlQuery.trim().toLowerCase();
               
-              // ① 名前または追加名が一致し、かつ artistType が Producer（ボカロP）である人を最優先！
               let matched = artists.find((a: any) => {
                 const name = (a.name || '').toLowerCase();
                 const addNames = (a.additionalNames || '').toLowerCase();
@@ -115,12 +121,10 @@ useEffect(() => {
                 return isProducer && (name === target || addNames.includes(target) || target.includes(name));
               });
 
-              // ② それで見つからなければ、単に artistType が Producer の人を優先
               if (!matched) {
                 matched = artists.find((a: any) => (a.artistType || '').toLowerCase() === 'producer');
               }
 
-              // ③ それでもダメなら最初の候補
               if (!matched) {
                 matched = artists[0];
               }
@@ -134,21 +138,25 @@ useEffect(() => {
           } catch (e) {
             console.error('Auto artistId resolution error:', e);
           }
-        }        const songTypesParam =
+        }
+
+        const songTypesParam =
           urlMode === 'song' && urlSongType === 'original'
             ? 'Original'
             : 'Original,Cover,Remix,Other,MusicPV';
 
+        // ★ APIには role を渡さず、全件（またはそのクリエイター・曲の全リスト）を取得させる
         const result = await searchVocaDBSongs(
           urlQuery,
           urlMode,
           sort,
           urlPage,
           PAGE_SIZE,
-          currentArtistId, // 補完されたIDを使う
-          urlRole,
+          currentArtistId,
+          'all', // サーバー側でのrole絞り込みは行わない
           songTypesParam
         );
+
         if (isMounted) {
           setSongs(result.items);
           setTotalCount(result.totalCount);
@@ -167,7 +175,8 @@ useEffect(() => {
     return () => {
       isMounted = false;
     };
-  }, [urlMode, urlQuery, urlRole, urlArtistId, urlPage, urlSongType, sort]);
+  }, [urlMode, urlQuery, urlArtistId, urlPage, urlSongType, sort]);
+
   useEffect(() => {
     if (!creatorQueryInput.trim() || urlArtistId) {
       setArtistSuggestions([]);
@@ -193,7 +202,7 @@ useEffect(() => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
- const handleSongSearch = (e: React.FormEvent) => {
+  const handleSongSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setCreatorQueryInput('');
     setShowSuggestions(false);
@@ -205,7 +214,6 @@ useEffect(() => {
     }
   };
 
-  // ★ 検索ボタンを押したときにも、自動でアーティストIDを引いてから遷移するように強化
   const handleCreatorSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setSongQueryInput('');
@@ -217,12 +225,11 @@ useEffect(() => {
     }
 
     try {
-      // 検索ボタン押下時、その場でVocaDBのアーティスト検索を叩いてIDを確実に取得する
       const res = await searchVocaDBArtists(q);
       if (res && res.length > 0) {
-        const matched = res[0]; // 最も一致度の高いアーティストを採用
+        const matched = res[0];
         router.push(
-          `/?mode=creator&artistId=${matched.id}&query=${encodeURIComponent(matched.name)}&role=${urlRole}&page=1`
+          `/?mode=creator&artistId=${matched.id}&query=${encodeURIComponent(matched.name)}&role=${selectedRole}&page=1`
         );
         return;
       }
@@ -230,8 +237,7 @@ useEffect(() => {
       console.error('Artist search on submit error:', err);
     }
 
-    // 万が一IDが引けなかった場合のフォールバック
-    router.push(`/?mode=creator&query=${encodeURIComponent(q)}&role=${urlRole}&page=1`);
+    router.push(`/?mode=creator&query=${encodeURIComponent(q)}&role=${selectedRole}&page=1`);
   };
 
   const handleSelectArtist = (artist: VocaDBArtist) => {
@@ -239,9 +245,10 @@ useEffect(() => {
     setCreatorQueryInput(artist.name);
     setSongQueryInput('');
     router.push(
-      `/?mode=creator&artistId=${artist.id}&query=${encodeURIComponent(artist.name)}&role=${urlRole}&page=1`
+      `/?mode=creator&artistId=${artist.id}&query=${encodeURIComponent(artist.name)}&role=${selectedRole}&page=1`
     );
   };
+
   const handleResetAll = () => {
     setSongQueryInput('');
     setCreatorQueryInput('');
@@ -257,10 +264,11 @@ useEffect(() => {
     router.replace(`/?${params.toString()}`);
   };
 
+  // ★ 職域フィルターの変更は、APIを叩き直さず「手元のステート変更」だけで瞬時に行う
   const handleRoleChange = (role: string) => {
+    setSelectedRole(role);
     const params = new URLSearchParams(searchParams.toString());
     params.set('role', role);
-    params.set('page', '1');
     router.replace(`/?${params.toString()}`);
   };
 
@@ -275,8 +283,35 @@ useEffect(() => {
     setSort(newSort);
   };
 
-  // --- 安定化された柔軟なフィルタリング（取りこぼし防止） ---
+  // --- ★ 手元（メモリ上）での完全な高速フィルタリング ---
   const filteredSongs = songs.filter((song) => {
+    // 1. 職域（role）による手元フィルタリング
+    if (selectedRole !== 'all') {
+      const credits = song.credits || [];
+      const artists = song.artists || [];
+      
+      const matchCreditRole = credits.some((c: any) => c.role === selectedRole);
+      
+      // VocaDB公式の英語ロール対応チェック
+      const targetDbRole = ROLE_CONFIG[selectedRole] ? ROLE_CONFIG[selectedRole].label : '';
+      const matchArtistRole = artists.some((a: any) => {
+        const aRoles = a.roles || [];
+        if (selectedRole === 'music' && (aRoles.includes('Composer') || aRoles.includes('Arranger'))) return true;
+        if (selectedRole === 'lyrics' && aRoles.includes('Lyricist')) return true;
+        if (selectedRole === 'singer' && aRoles.includes('Vocalist')) return true;
+        if (selectedRole === 'mix' && aRoles.includes('Mixer')) return true;
+        if (selectedRole === 'illust' && aRoles.includes('Illustrator')) return true;
+        if (selectedRole === 'movie' && aRoles.includes('Animator')) return true;
+        if (selectedRole === 'tuning' && aRoles.includes('VoiceManipulator')) return true;
+        return false;
+      });
+
+      if (!matchCreditRole && !matchArtistRole) {
+        return false;
+      }
+    }
+
+    // 2. クリエイター名クエリによる追加フィルタリング（必要に応じて）
     if (urlMode === 'creator' && urlQuery.trim()) {
       const queryLower = urlQuery.trim().toLowerCase();
       const hasMatchingCreator = (song.credits || []).some((c) => 
@@ -285,12 +320,9 @@ useEffect(() => {
       const hasMatchingArtist = (song.artistString || '').toLowerCase().includes(queryLower);
       const hasMatchingTitle = (song.title || '').toLowerCase().includes(queryLower);
 
-      if (urlRole !== 'all') {
-        const hasRole = (song.credits || []).some((c) => c.role === urlRole);
-        return hasRole || hasMatchingCreator || hasMatchingArtist;
-      }
-      return hasMatchingCreator || hasMatchingArtist || hasMatchingTitle || true;
+      return hasMatchingCreator || hasMatchingArtist || hasMatchingTitle;
     }
+
     return true;
   });
 
@@ -580,9 +612,9 @@ useEffect(() => {
             <div className="flex items-center gap-2 text-xs">
               <span>{urlMode === 'creator' ? '👤 参加クリエイター:' : '🎵 検索曲名:'}</span>
               <strong className="text-sm font-black">{urlQuery}</strong>
-              {urlMode === 'creator' && urlRole !== 'all' && ROLE_CONFIG[urlRole] && (
+              {urlMode === 'creator' && selectedRole !== 'all' && ROLE_CONFIG[selectedRole] && (
                 <span className="px-2 py-0.5 rounded-full bg-black/20 text-[10px] font-bold border border-white/10">
-                  {ROLE_CONFIG[urlRole].label}
+                  {ROLE_CONFIG[selectedRole].label}
                 </span>
               )}
               {urlMode === 'song' && urlSongType === 'original' && (
@@ -670,7 +702,7 @@ useEffect(() => {
               <button
                 onClick={() => handleRoleChange('all')}
                 className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                  urlRole === 'all'
+                  selectedRole === 'all'
                     ? isDark
                       ? 'bg-white text-slate-950 shadow'
                       : 'bg-slate-900 text-white shadow'
@@ -683,7 +715,7 @@ useEffect(() => {
               </button>
 
               {Object.entries(ROLE_CONFIG).map(([key, config]) => {
-                const active = urlRole === key;
+                const active = selectedRole === key;
                 return (
                   <button
                     key={key}
