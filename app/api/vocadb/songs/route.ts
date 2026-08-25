@@ -14,11 +14,13 @@ export async function GET(request: Request) {
 
     const apiKey = process.env.YOUTUBE_API_KEY;
 
-    // 1. YouTube Data API検索
+    // 1. YouTube Data API検索（完全一致クエリで余計な関連ヒットを排除）
     if (query.trim() && apiKey) {
       try {
+        // ダブルクォーテーションで囲むことでYouTube側に完全一致を強制する
+        const exactQuery = `"${query.trim()}"`;
         const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
-          query.trim()
+          exactQuery
         )}&maxResults=20&key=${apiKey}`;
 
         const ytRes = await fetch(ytUrl);
