@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { API_ENDPOINTS } from '@/lib/endpoints'; // ← さっき作った定数ファイルをインポート
 
 const VOCADB_ROLE_MAP: Record<string, string> = {
   music: 'Composer',
@@ -23,7 +24,7 @@ function sanitizeDescription(description: string = ''): string {
     .slice(0, 1000);
 }
 
-// 拡張版：Gemini APIを使った「クレジット抽出 ＆ 検索クエリとの関連度（ノイズ）判定」の同時実行
+// 拡張版：Gemini APIを使った「クレジット抽出 ＆ 検索クエリとの関連度（ノイズ）判定」
 async function parseCreditsAndRelevanceWithGemini(
   description: string = '', 
   channelTitle: string = '', 
@@ -58,7 +59,7 @@ async function parseCreditsAndRelevanceWithGemini(
       '余計な挨拶やマークダウンは一切含めず、純粋なJSON形式のみを返してください。\n' +
       '{\n  "isRelevant": true,\n  "credits": [\n    {"role": "lyrics", "creatorName": "〇〇"}\n  ]\n}';
 
-    const res = await fetch('[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=)' + apiKey, {
+    const res = await fetch(API_ENDPOINTS.GEMINI_FLASH + '?key=' + apiKey, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -112,7 +113,7 @@ export async function GET(request: Request) {
     // --- 1. クリエイター検索モード時: アーティストIDの確実な自動解決 ---
     if (mode === 'creator' && rawQuery.trim() && !artistId) {
       try {
-        const artistSearchUrl = '[https://vocadb.net/api/artists?query=](https://vocadb.net/api/artists?query=)' + encodeURIComponent(rawQuery.trim()) + '&nameMatchMode=Auto&maxResults=5&lang=Japanese';
+        const artistSearchUrl = API_ENDPOINTS.VOCADB_ARTISTS + '?query=' + encodeURIComponent(rawQuery.trim()) + '&nameMatchMode=Auto&maxResults=5&lang=Japanese';
 
         const aController = new AbortController();
         const aTimer = setTimeout(() => aController.abort(), 2500);
@@ -144,7 +145,7 @@ export async function GET(request: Request) {
     try {
       if (!artistId && rawQuery.trim() && mode === 'creator') {
         try {
-          const fallbackUrl = '[https://vocadb.net/api/artists?query=](https://vocadb.net/api/artists?query=)' + encodeURIComponent(rawQuery.trim()) + '&nameMatchMode=Auto&maxResults=5&lang=Japanese';
+          const fallbackUrl = API_ENDPOINTS.VOCADB_ARTISTS + '?query=' + encodeURIComponent(rawQuery.trim()) + '&nameMatchMode=Auto&maxResults=5&lang=Japanese';
 
           const fRes = await fetch(fallbackUrl, {
             headers: {
@@ -194,7 +195,7 @@ export async function GET(request: Request) {
         vocaParams.set('childTags', 'true');
       }
 
-      const vocaUrl = '[https://vocadb.net/api/songs](https://vocadb.net/api/songs)?' + vocaParams.toString();
+      const vocaUrl = API_ENDPOINTS.VOCADB_SONGS + '?' + vocaParams.toString();
       console.log('🌐 VocaDB API Request:', vocaUrl);
 
       const vocaRes = await fetch(vocaUrl, {
@@ -261,7 +262,7 @@ export async function GET(request: Request) {
     if (shouldFetchYT) {
       try {
         const ytQuery = rawQuery.trim();
-        const ytUrl = '[https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=](https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=)' + encodeURIComponent(ytQuery) + '&maxResults=20&key=' + apiKey;
+        const ytUrl = API_ENDPOINTS.YOUTUBE_SEARCH + '?part=snippet&type=video&q=' + encodeURIComponent(ytQuery) + '&maxResults=20&key=' + apiKey;
 
         const ytRes = await fetch(ytUrl);
         const ytData = await ytRes.json();
@@ -273,7 +274,7 @@ export async function GET(request: Request) {
             .join(',');
 
           if (videoIds) {
-            const detailsUrl = '[https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=](https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=)' + videoIds + '&key=' + apiKey;
+            const detailsUrl = API_ENDPOINTS.YOUTUBE_VIDEOS + '?part=snippet,statistics&id=' + videoIds + '&key=' + apiKey;
             const detailsRes = await fetch(detailsUrl);
             const detailsData = await detailsRes.json();
 
