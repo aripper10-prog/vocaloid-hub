@@ -109,6 +109,7 @@ export async function GET(request: Request) {
     let artistId = searchParams.get('artistId');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
+    // ★ 漏れていたタグ検索用パラメータの完全復活
     const tagId = searchParams.get('tagId');
     const tag = searchParams.get('tag');
 
@@ -178,6 +179,7 @@ export async function GET(request: Request) {
         vocaParams.set('artistParticipationStatus', 'Everything');
       }
 
+      // ★ タグ検索パラメータの厳格な適用
       if (tagId) vocaParams.set('tagId', tagId);
       if (tag) vocaParams.set('tag', tag);
 
@@ -237,14 +239,13 @@ export async function GET(request: Request) {
       };
     });
 
-    // --- 3. 【常時並行】YouTube検索の実行（VocaDBのヒット有無に関わらず完全一致で走査） ---
+    // --- 3. 【常時並行】YouTube検索の実行（完全一致クエリでノイズシャットアウト） ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
     const shouldFetchYT = Boolean(query.trim() && apiKey);
 
     if (shouldFetchYT) {
       try {
-        // 米津ノイズを防ぐための厳格な完全一致クエリ (例: ""まふまふ"")
         const exactQuery = '"' + query.trim() + '"';
         const ytUrl = API_ENDPOINTS.YOUTUBE_SEARCH + '?part=snippet&type=video&q=' + encodeURIComponent(exactQuery) + '&maxResults=20&key=' + apiKey;
 
@@ -321,16 +322,13 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 4. VocaDBデータとYouTubeデータの綺麗なマージ ---
-    // YouTube側アイテムのPV/IDがVocaDB側と重複する場合はVocaDB側を優先しつつ、不足しているYouTube補完データを統合
+    // --- 4. データの綺麗なマージ ---
     const mergedMap = new Map();
 
-    // 先にVocaDBのアイテムを登録
     vocaItems.forEach((item: any) => {
       mergedMap.set(String(item.id), item);
     });
 
-    // YouTubeアイテムを統合（重複チェック）
     ytItems.forEach((ytItem: any) => {
       const foundDuplicate = Array.from(mergedMap.values()).some((v: any) => {
         const vYtId = v.youtubeId || (v.pvs || []).find((p: any) => p.service === 'Youtube')?.pvId;
