@@ -18,6 +18,67 @@ function shouldSearchYouTube(query: string): boolean {
   return personalKeywords.some((keyword) => q.includes(keyword));
 }
 
+// 8つの職域を概要欄から自動パースする関数
+function parseCreditsFromDescription(description: string = '', channelTitle: string = '', query: string = ''): Array<{ role: string; creatorName: string }> {
+  const creditsMap = new Map<string, string>();
+  const desc = description.toLowerCase();
+
+  // 1. パターンの定義（日本語・英語の主要な表記に対応）
+  const patterns: Array<{ role: string; keywords: string[] }> = [
+    { role: 'music', keywords: ['music', 'music & lyrics', '作編曲', '作曲', '作・編曲', '作・曲', 'composed by', 'music by'] },
+    { role: 'lyrics', keywords: ['lyrics', '作詞', '作・詞', 'lyrics by', 'word'] },
+    { role: 'tuning', keywords: ['tuning', '調声', 'vocal manipulate', 'ust'] },
+    { role: 'singer', keywords: ['vocal', 'vocalist', 'singer', '歌唱', '歌', 'ボーカル', 'vocal&', '&vocal'] },
+    { role: 'mix', keywords: ['mix', 'mastering', 'mix & mastering', 'mix&mastering', 'ミックス', 'マスタリング', 'mix by', 'engineered by'] },
+    { role: 'illust', keywords: ['illust', 'illustration', 'illustrator', 'イラスト', '絵', 'アート', 'art', 'drawn by'] },
+    { role: 'movie', keywords: ['movie', 'animation', 'video', 'mv', '動画', '映像', '映像制作', 'movie by', 'directed by'] },
+    { role: 'dance', keywords: ['choreography', 'dance', '振付', '振り付け', '踊ってみた'] },
+  ];
+
+  // 2. 行ごとに分割してパース
+  const lines = description.split('\n');
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+    for (const p of patterns) {
+      if (creditsMap.has(p.role)) continue; // 既に埋まっていたらスキップ
+      for (const kw of p.keywords) {
+        if (lowerLine.includes(kw)) {
+          // コロンやコロンの前後、あるいは「:」以降の名前を抽出
+          const parts = line.split(/[:：\-\/]/);
+          if (parts.length > 1) {
+            const name = parts.slice(1).join(' ').trim();
+            if (name && name.length < 30) {
+              creditsMap.set(p.role, name);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 3. 概要欄から拾えなかった場合のフォールバック＆補正
+  const cleanQuery = query.trim();
+  if (cleanQuery && shouldSearchYouTube(query)) {
+    // 検索クエリが含まれている場合は、最低限「作詞」などに安全に割り当てる
+    if (!creditsMap.has('lyrics')) {
+      creditsMap.set('lyrics', cleanQuery);
+    }
+  }
+
+  if (!creditsMap.has('music') && channelTitle) {
+    creditsMap.set('music', channelTitle);
+  }
+
+  // Mapから配列へ変換
+  const result: Array<{ role: string; creatorName: string }> = [];
+  for (const [role, creatorName] of creditsMap.entries()) {
+    result.push({ role, creatorName });
+  }
+
+  return result;
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -166,23 +227,10 @@ export async function GET(request: Request) {
             if (detailsData.items && Array.isArray(detailsData.items)) {
               ytItems = detailsData.items.map((item: any) => {
                 const channelTitle = item.snippet?.channelTitle || 'Unknown';
-                const cleanQuery = query.trim();
-
-                // ひとつの楽曲に複数の職域（作詞・作曲・MIX・イラスト等）を放射状にぶら下げる
-                const dynamicCredits = [
-                  {
-                    role: 'lyrics',
-                    creatorName: cleanQuery,
-                  },
-                  {
-                    role: 'music',
-                    creatorName: channelTitle,
-                  },
-                  {
-                    role: 'mix',
-                    creatorName: cleanQuery,
-                  },
-                ];
+                const description = item.snippet?.description || '';
+                
+                // 概要欄から8つの職域を自動パース
+                const parsedCredits = parseCreditsFromDescription(description, channelTitle, query);
 
                 return {
                   id: `yt_${item.id}`,
@@ -191,11 +239,11 @@ export async function GET(request: Request) {
                     {
                       name: channelTitle,
                       isSupport: false,
-                      roles: ['Composer', 'Lyricist'],
+                      roles: ['Producer'],
                       artist: { id: 0, name: channelTitle, artistType: 'Producer' },
                     },
                   ],
-                  artistString: `${channelTitle} / ${cleanQuery}`,
+                  artistString: channelTitle,
                   songType: 'Original',
                   thumbUrl: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || '',
                   publishDate: item.snippet?.publishedAt || new Date().toISOString(),
@@ -212,7 +260,7 @@ export async function GET(request: Request) {
                   webLinks: [],
                   youtubeId: item.id,
                   niconicoId: undefined,
-                  credits: dynamicCredits,
+                  credits: parsedCredits,
                   viewCount: item.statistics?.viewCount ? parseInt(item.statistics.viewCount, 10) : 0,
                   ratingScore: 0,
                   favoritedTimes: 0,
