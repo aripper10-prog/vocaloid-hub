@@ -11,7 +11,7 @@ const VOCADB_ROLE_MAP: Record<string, string> = {
   dance: 'Other',
 };
 
-// YouTube検索を発動させるキーワードの判定（必要に応じて調整可能）
+// YouTube検索を発動させるキーワードの判定
 function shouldSearchYouTube(query: string): boolean {
   const q = query.trim().toLowerCase();
   const personalKeywords = ['作詞師ari', 'ari', 'alice and lemonade'];
@@ -26,17 +26,57 @@ export async function GET(request: Request) {
     const sort = searchParams.get('sort') || 'PublishDate';
     const maxResults = searchParams.get('maxResults') || '48';
     const start = searchParams.get('start') || '0';
-    const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
-    const role = searchParams.get('role');
+    const parentVersionId = searchParams.get('parentVersionId');
     let artistId = searchParams.get('artistId');
+    const role = searchParams.get('role');
+    const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
-    console.log(`[VocaHub Debug] Search Query: "${query}", Mode: "${mode}", ArtistId: "${artistId}"`);
+    // --- 1. クリエイター検索モード時: アーティストIDの自動解決 ---
+    if (mode === 'creator' && query.trim() && !artistId) {
+      try {
+        const artistSearchUrl = `https://vocadb.net/api/artists?query=${encodeURIComponent(
+          query.trim()
+        )}&nameMatchMode=Auto&maxResults=10&lang=Japanese`;
 
-    let ytItems: any[] = [];
-    const apiKey = process.env.YOUTUBE_API_KEY;
-    console.log(`[VocaHub Debug] YouTube API Key exists: ${Boolean(apiKey)}`);
+        const aController = new AbortController();
+        const aTimer = setTimeout(() => aController.abort(), 2500);
+        const aRes = await fetch(artistSearchUrl, {
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VocaHub/1.0',
+          },
+          signal: aController.signal,
+          cache: 'no-store',
+        });
+        clearTimeout(aTimer);
 
-    // --- 1. VocaDB検索 ---
+        if (aRes.ok) {
+          const aData = await aRes.json();
+          const items = aData.items || [];
+          const target = query.trim().toLowerCase();
+
+          const exactMatch = items.find(
+            (a: any) =>
+              (a.name || '').toLowerCase() === target ||
+              (a.additionalNames || '')
+                .toLowerCase()
+                .split(',')
+                .map((n: string) => n.trim())
+                .includes(target)
+          );
+
+          if (exactMatch) {
+            artistId = String(exactMatch.id);
+          } else if (items.length > 0) {
+            artistId = String(items[0].id);
+          }
+        }
+      } catch (e) {
+        // ID解決失敗時はquery検索へフォールバック
+      }
+    }
+
+    // --- 2. VocaDB楽曲検索の実行 ---
     let vocaData: any = { items: [], totalCount: 0 };
     try {
       const vocaParams = new URLSearchParams({
@@ -49,7 +89,7 @@ export async function GET(request: Request) {
         songTypes: songTypes,
       });
 
-      if (query.trim()) {
+      if (mode === 'song' && query.trim()) {
         vocaParams.set('query', query.trim());
         vocaParams.set('nameMatchMode', 'Auto');
       }
@@ -57,10 +97,18 @@ export async function GET(request: Request) {
       if (artistId && !isNaN(Number(artistId))) {
         vocaParams.append('artistId[]', artistId);
         vocaParams.set('artistParticipationStatus', 'Everything');
+      } else if (mode === 'creator' && query.trim()) {
+        vocaParams.set('query', query.trim());
+        vocaParams.set('nameMatchMode', 'Auto');
       }
 
       if (role && VOCADB_ROLE_MAP[role]) {
         vocaParams.append('artistRole', VOCADB_ROLE_MAP[role]);
+      }
+
+      if (parentVersionId && !isNaN(Number(parentVersionId))) {
+        vocaParams.set('parentVersionId', parentVersionId);
+        vocaParams.set('childTags', 'true');
       }
 
       const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
@@ -84,14 +132,15 @@ export async function GET(request: Request) {
       artists: Array.isArray(item.artists) ? item.artists : [],
       pvs: Array.isArray(item.pvs) ? item.pvs : [],
       tags: Array.isArray(item.tags) ? item.tags : [],
+      credits: Array.isArray(item.credits) ? item.credits : [],
       artistString: item.artistString || '',
     }));
 
-    // --- 2. YouTube検索の判定 ---
+    // --- 3. YouTube検索の統合判定 ---
+    let ytItems: any[] = [];
+    const apiKey = process.env.YOUTUBE_API_KEY;
     const isPersonalQuery = shouldSearchYouTube(query);
     const shouldFetchYT = Boolean(query.trim() && apiKey && (vocaItems.length === 0 || isPersonalQuery));
-
-    console.log(`[VocaHub Debug] shouldFetchYT: ${shouldFetchYT} (isPersonal: ${isPersonalQuery}, vocaCount: ${vocaItems.length})`);
 
     if (shouldFetchYT) {
       try {
@@ -102,7 +151,6 @@ export async function GET(request: Request) {
 
         const ytRes = await fetch(ytUrl);
         const ytData = await ytRes.json();
-        console.log(`[VocaHub Debug] YouTube API Response items count: ${ytData.items?.length || 0}`);
 
         if (ytData.items && Array.isArray(ytData.items)) {
           const videoIds = ytData.items
@@ -167,7 +215,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // 重複を避けてマージ
+    // 重複を除外してマージ
     const existingIds = new Set(vocaItems.map((item: any) => String(item.id)));
     const uniqueYtItems = ytItems.filter((yt: any) => !existingIds.has(String(yt.id)));
 
