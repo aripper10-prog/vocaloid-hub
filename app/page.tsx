@@ -76,7 +76,6 @@ const SORT_OPTIONS = [
 ];
 
 // --- 楽曲詳細モーダルコンポーネント ---
-// --- 楽曲詳細モーダルコンポーネント ---
 function SongModal({
   songId,
   initialSong,
@@ -152,9 +151,7 @@ function SongModal({
   const song = detail?.song || initialSong;
   if (!song) return null;
 
-  // ★ 型エラー回避用のキャスト定義を追加
   const songAny = song as any;
-
   const typeBadge = SONG_TYPE_MAP[song.songType] || { label: song.songType, color: 'bg-slate-800 text-slate-300' };
 
   return (
@@ -283,15 +280,14 @@ function SongModal({
           )}
         </div>
 
-        {/* タグ表示セクション */}
+        {/* タグ表示セクション（タグ名を用いた安定したクエリ検索として実装） */}
         {songAny.tags && songAny.tags.length > 0 && (
           <div className={`pt-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
             <h3 className="text-xs font-bold opacity-60 uppercase tracking-wider mb-3">タグ</h3>
             <div className="flex flex-wrap gap-1.5">
               {songAny.tags.map((t: any, idx: number) => {
                 const tagName = typeof t === 'string' ? t : t.tag?.name || t.name || '';
-                const tagId = typeof t === 'object' && (t.tag?.id || t.id) ? String(t.tag?.id || t.id) : '';
-                const tagUrl = tagId ? `/?tagId=${tagId}&page=1` : `/?query=${encodeURIComponent(tagName)}&page=1`;
+                const tagUrl = `/?mode=song&query=${encodeURIComponent(tagName)}&page=1`;
 
                 return (
                   <a
@@ -343,6 +339,7 @@ function SongModal({
     </div>
   );
 }
+
 // --- メインホーム画面 ---
 function HomeContent() {
   const router = useRouter();
@@ -358,10 +355,6 @@ function HomeContent() {
   const urlArtistId = searchParams.get('artistId') || '';
   const urlPage = parseInt(searchParams.get('page') || '1', 10);
   const urlSongType = searchParams.get('songType') || 'all';
-
-  // タグ検索用パラメータの取得
-  const urlTagId = searchParams.get('tagId') || '';
-  const urlTag = searchParams.get('tag') || '';
 
   const [songQueryInput, setSongQueryInput] = useState(urlMode === 'song' ? urlQuery : '');
   const [creatorQueryInput, setCreatorQueryInput] = useState(urlMode === 'creator' ? urlQuery : '');
@@ -432,6 +425,7 @@ function HomeContent() {
             ? 'Original'
             : 'Original,Cover,Remix,Other,MusicPV';
 
+        // searchVocaDBSongs の定義に完全一致する引数のみを渡す
         const result = await searchVocaDBSongs(
           urlQuery,
           urlMode,
@@ -440,9 +434,7 @@ function HomeContent() {
           PAGE_SIZE,
           currentArtistId,
           'all',
-          songTypesParam,
-          urlTagId,
-          urlTag
+          songTypesParam
         );
 
         if (isMounted) {
@@ -463,7 +455,7 @@ function HomeContent() {
     return () => {
       isMounted = false;
     };
-  }, [urlMode, urlQuery, urlArtistId, urlPage, urlSongType, sort, urlTagId, urlTag]);
+  }, [urlMode, urlQuery, urlArtistId, urlPage, urlSongType, sort]);
 
   useEffect(() => {
     if (!creatorQueryInput.trim() || urlArtistId) {
