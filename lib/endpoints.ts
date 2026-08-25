@@ -1,4 +1,3 @@
-// 外部APIのエンドポイントを安全に一元管理するファイル
 export const API_ENDPOINTS = {
   VOCADB_SONGS: 'https://vocadb.net/api/songs',
   VOCADB_ARTISTS: 'https://vocadb.net/api/artists',
