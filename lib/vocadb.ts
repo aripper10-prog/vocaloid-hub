@@ -53,7 +53,11 @@ export async function searchVocaDBSongs(
     if (role && role !== 'all') params.set('role', role);
     if (songTypes) params.set('songTypes', songTypes);
 
-    const res = await fetch(`/api/vocadb/songs?${params.toString()}`, {
+    const targetUrl = `/api/vocadb/songs?${params.toString()}`;
+    // デバッグ用：実際にどのようなパラメータ（query等）でAPIへリクエストを飛ばしているかコンソールに表示
+    console.log('🔍 [VocaHub Debug] Fetching API:', targetUrl);
+
+    const res = await fetch(targetUrl, {
       cache: 'no-store',
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -61,6 +65,7 @@ export async function searchVocaDBSongs(
     });
 
     if (!res.ok) {
+      console.error('API response not ok:', res.status, res.statusText);
       return { items: [], totalCount: 0 };
     }
 
