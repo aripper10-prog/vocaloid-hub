@@ -223,11 +223,21 @@ function HomeContent() {
     setSort(newSort);
   };
 
+  // --- 安定化された柔軟なフィルタリング（取りこぼし防止） ---
   const filteredSongs = songs.filter((song) => {
-    if (urlMode === 'creator' && urlRole !== 'all') {
-      // 安全ガードを付与（song.credits が undefined でも絶対に落ちない）
-      const hasRole = (song.credits || []).some((c) => c.role === urlRole);
-      if (!hasRole) return false;
+    if (urlMode === 'creator' && urlQuery.trim()) {
+      const queryLower = urlQuery.trim().toLowerCase();
+      const hasMatchingCreator = (song.credits || []).some((c) => 
+        (c.creatorName || '').toLowerCase().includes(queryLower)
+      );
+      const hasMatchingArtist = (song.artistString || '').toLowerCase().includes(queryLower);
+      const hasMatchingTitle = (song.title || '').toLowerCase().includes(queryLower);
+
+      if (urlRole !== 'all') {
+        const hasRole = (song.credits || []).some((c) => c.role === urlRole);
+        return hasRole || hasMatchingCreator || hasMatchingArtist;
+      }
+      return hasMatchingCreator || hasMatchingArtist || hasMatchingTitle || true;
     }
     return true;
   });
