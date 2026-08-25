@@ -254,17 +254,19 @@ const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
         artistString: item.artistString || '',
       };
     });
-
-   // --- 3. YouTube検索の統合判定 ---
+// --- 3. YouTube検索の統合判定（VocaDBにない曲もYouTubeから必ず発掘する） ---
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
     const isPersonalQuery = shouldSearchYouTube(rawQuery);
-    
-    // ★ 修正：VocaDBで0件のとき、または個人キーワード（作詞師ari等）、あるいはクリエイターモードのときは確実にYouTubeも調べる
+
+    // ★ 修正：
+    // 1. クエリが入力されており、YouTube APIキーがある
+    // 2. 「VocaDBの結果が0件」または「個人キーワードが含まれる」または「クリエイター検索モードである」
+    // このいずれかに該当すれば、必ずYouTube検索を走らせる！
     const shouldFetchYT = Boolean(
       rawQuery.trim() && 
       apiKey && 
-      (vocaItems.length === 0 || isPersonalQuery || mode === 'creator')
+      (vocaItems.length === 0 || isPersonalQuery || mode === 'creator' || mode === 'song')
     );
     if (shouldFetchYT) {
       try {
@@ -339,10 +341,9 @@ const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
         console.error('YouTube search error:', err);
       }
     }
-
-    // --- 4. 職域フィルター ---
+// --- 4. 統合 ＆ 職域・曲名フィルター ---
     let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
-
+    
     if (mode === 'creator' && rawQuery.trim() && !artistId) {
       const targetQuery = rawQuery.trim().toLowerCase();
 
