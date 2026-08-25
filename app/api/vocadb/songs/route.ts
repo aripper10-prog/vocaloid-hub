@@ -24,7 +24,7 @@ function sanitizeDescription(description: string = ''): string {
     .slice(0, 1000);     // 長すぎる概要欄は最初の1000文字に制限
 }
 
-// Gemini APIを使った高精度クレジット抽出 ＆ 職域判定（安全対策強化版・型エラー回避のためany[]に修正）
+// Gemini APIを使った高精度クレジット抽出 ＆ 職域判定（安全対策強化版）
 async function parseCreditsWithGemini(description: string = '', channelTitle: string = '', query: string = ''): Promise<any[]> {
   const apiKey = process.env.GEMINI_API_KEY;
   const safeDescription = sanitizeDescription(description);
@@ -113,7 +113,7 @@ export async function GET(request: Request) {
     const role = searchParams.get('role');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
-    // --- 1. クリエイター検索モード時: アーティストIDの自動解決 ---
+    // --- 1. クリエイター検索モード時: アーティストIDの自動解決（柔軟化） ---
     if (mode === 'creator' && rawQuery.trim() && !artistId) {
       try {
         const artistSearchUrl = `[https://vocadb.net/api/artists?query=$](https://vocadb.net/api/artists?query=$){encodeURIComponent(
@@ -137,7 +137,8 @@ export async function GET(request: Request) {
           const items = aData.items || [];
           const target = rawQuery.trim().toLowerCase();
 
-          const exactMatch = items.find(
+          // ① 完全一致、または追加名に含まれるものを最優先
+          let matchedArtist = items.find(
             (a: any) =>
               (a.name || '').toLowerCase() === target ||
               (a.additionalNames || '')
@@ -147,13 +148,22 @@ export async function GET(request: Request) {
                 .includes(target)
           );
 
-          if (exactMatch) {
-            artistId = String(exactMatch.id);
-          } else if (items.length > 0) {
-            artistId = String(items[0].id);
+          // ② それでも見つからない場合、部分一致するものがあればそれを採用
+          if (!matchedArtist && items.length > 0) {
+            matchedArtist = items.find(
+              (a: any) =>
+                (a.name || '').toLowerCase().includes(target) ||
+                target.includes((a.name || '').toLowerCase())
+            ) || items[0];
+          }
+
+          if (matchedArtist) {
+            artistId = String(matchedArtist.id);
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('Artist ID resolution error:', e);
+      }
     }
 
     // --- 2. VocaDB楽曲検索の実行 ---
@@ -169,12 +179,14 @@ export async function GET(request: Request) {
         songTypes: songTypes,
       });
 
-      if (rawQuery.trim()) {
+      // 曲名検索または入力されたクエリがある場合は最優先でセット
+      if (rawQuery.trim() && !artistId) {
         vocaParams.set('query', rawQuery.trim());
         vocaParams.set('nameMatchMode', 'Partial');
       }
 
-      if (mode === 'creator' && artistId && !isNaN(Number(artistId))) {
+      // クリエイターモードかつartistIdがある場合
+      if (artistId && !isNaN(Number(artistId))) {
         vocaParams.append('artistId[]', artistId);
         vocaParams.set('artistParticipationStatus', 'Everything');
       }
@@ -188,7 +200,7 @@ export async function GET(request: Request) {
         vocaParams.set('childTags', 'true');
       }
 
-      const vocaUrl = `https://vocadb.net/api/songs?${vocaParams.toString()}`;
+      const vocaUrl = `[https://vocadb.net/api/songs?$](https://vocadb.net/api/songs?$){vocaParams.toString()}`;
       console.log('🌐 VocaDB API Request:', vocaUrl);
 
       const vocaRes = await fetch(vocaUrl, {
