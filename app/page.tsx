@@ -76,6 +76,7 @@ const SORT_OPTIONS = [
 ];
 
 // --- 楽曲詳細モーダルコンポーネント ---
+// --- 楽曲詳細モーダルコンポーネント ---
 function SongModal({
   songId,
   initialSong,
@@ -150,6 +151,9 @@ function SongModal({
 
   const song = detail?.song || initialSong;
   if (!song) return null;
+
+  // ★ 型エラー回避用のキャスト定義を追加
+  const songAny = song as any;
 
   const typeBadge = SONG_TYPE_MAP[song.songType] || { label: song.songType, color: 'bg-slate-800 text-slate-300' };
 
@@ -279,7 +283,7 @@ function SongModal({
           )}
         </div>
 
-    {/* タグ表示セクション */}
+        {/* タグ表示セクション */}
         {songAny.tags && songAny.tags.length > 0 && (
           <div className={`pt-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
             <h3 className="text-xs font-bold opacity-60 uppercase tracking-wider mb-3">タグ</h3>
@@ -307,6 +311,7 @@ function SongModal({
             </div>
           </div>
         )}
+
         {/* 派生ツリー */}
         {detail && (detail.originalSong || (detail.derivedSongs && detail.derivedSongs.length > 0)) && (
           <div className={`pt-4 border-t space-y-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
@@ -338,7 +343,6 @@ function SongModal({
     </div>
   );
 }
-
 // --- メインホーム画面 ---
 function HomeContent() {
   const router = useRouter();
