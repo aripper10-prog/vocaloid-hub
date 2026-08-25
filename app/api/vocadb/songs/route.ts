@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { searchYouTubeOnDemand } from '@/lib/youtubeSearch';
 
 const VOCADB_ROLE_MAP: Record<string, string> = {
   music: 'Composer',
@@ -48,7 +49,6 @@ export async function GET(request: Request) {
           const items = aData.items || [];
           const target = query.trim().toLowerCase();
 
-          // 完全一致を最優先、なければ最上位候補
           const exactMatch = items.find(
             (a: any) =>
               (a.name || '').toLowerCase() === target ||
@@ -118,16 +118,34 @@ export async function GET(request: Request) {
 
     clearTimeout(timeoutId);
 
-    if (!res.ok) {
-      return NextResponse.json({ items: [], totalCount: 0 }, { status: 200 });
+    let items: any[] = [];
+    let totalCount = 0;
+
+    if (res.ok) {
+      const data = await res.json();
+      items = data.items || [];
+      totalCount = data.totalCount || items.length;
     }
 
-    const data = await res.json();
-    let items = data.items || [];
+    // ★ VocaDBの結果が少ない、あるいは名前検索・クリエイター検索でヒットを補強したい場合、YouTubeオンデマンド検索をマージ
+    if (query.trim() && items.length < 5) {
+      try {
+        const ytResults = await searchYouTubeOnDemand(query.trim());
+        if (ytResults && ytResults.length > 0) {
+          // 重複を防ぎつつYouTubeの結果をマージ
+          const existingIds = new Set(items.map(item => String(item.id)));
+          const uniqueYtItems = ytResults.filter(yt => !existingIds.has(String(yt.id)));
+          items = [...items, ...uniqueYtItems];
+          totalCount = items.length;
+        }
+      } catch (ytError) {
+        console.error('YouTube on-demand merge error:', ytError);
+      }
+    }
 
     return NextResponse.json({
       items,
-      totalCount: data.totalCount || items.length,
+      totalCount,
     });
   } catch (error) {
     return NextResponse.json({ items: [], totalCount: 0 }, { status: 200 });
