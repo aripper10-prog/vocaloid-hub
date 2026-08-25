@@ -11,11 +11,8 @@ const VOCADB_ROLE_MAP: Record<string, string> = {
   dance: 'Other',
 };
 
-// YouTube検索を補助的に発動させる例外的なキーワード（必要に応じて追加・調整可能）
-// ここに含まれる、またはVocaDBでヒットしにくい個人のペンネームなどのときだけYouTubeを叩く
 function shouldSearchYouTube(query: string): boolean {
   const q = query.trim().toLowerCase();
-  // 例: 「作詞師ari」や「ari」などの個人のペンネーム・サークル名などが含まれる場合
   const personalKeywords = ['作詞師ari', 'ari', 'alice and lemonade'];
   return personalKeywords.some((keyword) => q.includes(keyword));
 }
@@ -74,7 +71,6 @@ export async function GET(request: Request) {
     const vocaItems = vocaData.items || [];
 
     // --- 2. YouTube検索の判定 ---
-    // 「VocaDBの検索結果が少ない」かつ「個人のペンネーム（作詞師ariなど）での検索である」場合のみYouTubeを補助発動
     const isPersonalQuery = shouldSearchYouTube(query);
     const shouldFetchYT = query.trim() && apiKey && (vocaItems.length === 0 || isPersonalQuery);
 
@@ -100,24 +96,42 @@ export async function GET(request: Request) {
             const detailsData = await detailsRes.json();
 
             if (detailsData.items && Array.isArray(detailsData.items)) {
-              ytItems = detailsData.items.map((item: any) => ({
-                id: `yt_${item.id}`,
-                title: item.snippet?.title || 'Untitled',
-                artists: [{ name: item.snippet?.channelTitle || 'Unknown' }],
-                artistString: item.snippet?.channelTitle || 'Unknown Artist',
-                songType: 'Original',
-                thumbUrl: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || '',
-                publishDate: item.snippet?.publishedAt || new Date().toISOString(),
-                youtubeId: item.id,
-                niconicoId: undefined,
-                credits: [
-                  {
-                    role: 'Lyricist',
-                    creatorName: query.trim(),
-                  },
-                ],
-                viewCount: item.statistics?.viewCount ? parseInt(item.statistics.viewCount, 10) : undefined,
-              }));
+              // フロント側が期待するプロパティ（artistsの構造やPVsなど）を完備させる
+              ytItems = detailsData.items.map((item: any) => {
+                const channelTitle = item.snippet?.channelTitle || 'Unknown';
+                return {
+                  id: `yt_${item.id}`,
+                  title: item.snippet?.title || 'Untitled',
+                  artists: [
+                    {
+                      name: channelTitle,
+                      isSupport: false,
+                      roles: ['Producer'],
+                      artist: { id: 0, name: channelTitle, artistType: 'Producer' },
+                    },
+                  ],
+                  artistString: channelTitle,
+                  songType: 'Original',
+                  thumbUrl: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || '',
+                  publishDate: item.snippet?.publishedAt || new Date().toISOString(),
+                  pvs: [
+                    {
+                      service: 'Youtube',
+                      url: `https://www.youtube.com/watch?v=${item.id}`,
+                      pvId: item.id,
+                    },
+                  ],
+                  youtubeId: item.id,
+                  niconicoId: undefined,
+                  credits: [
+                    {
+                      role: 'Lyricist',
+                      creatorName: query.trim(),
+                    },
+                  ],
+                  viewCount: item.statistics?.viewCount ? parseInt(item.statistics.viewCount, 10) : 0,
+                };
+              });
             }
           }
         }
