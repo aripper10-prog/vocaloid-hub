@@ -1,7 +1,5 @@
-import { VocaDBSong } from './vocadb';
-import { parseDescription } from './parser';
-
-export async function searchYouTubeOnDemand(query: string): Promise<VocaDBSong[]> {
+// 完全に独立したYouTubeオンデマンド検索モジュール
+export async function searchYouTubeOnDemand(query: string): Promise<any[]> {
   const apiKey = process.env.YOUTUBE_API_KEY;
   if (!apiKey) {
     console.warn('YouTube API Key is not set.');
@@ -9,7 +7,6 @@ export async function searchYouTubeOnDemand(query: string): Promise<VocaDBSong[]
   }
 
   try {
-    // クリエイター名やキーワードでYouTubeを検索
     const res = await fetch(
       `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
         query
@@ -21,7 +18,6 @@ export async function searchYouTubeOnDemand(query: string): Promise<VocaDBSong[]
       return [];
     }
 
-    // 各動画の詳細（再生数や説明文などを取得するために動画IDで詳細を取得）
     const videoIds = data.items.map((item: any) => item.id.videoId).join(',');
     if (!videoIds) return [];
 
@@ -32,15 +28,11 @@ export async function searchYouTubeOnDemand(query: string): Promise<VocaDBSong[]
 
     if (!detailsData.items) return [];
 
-    // VocaDBSong形式に変換
-    const results: VocaDBSong[] = detailsData.items.map((item: any) => {
+    const results: any[] = detailsData.items.map((item: any) => {
       const snippet = item.snippet;
       const stats = item.statistics;
       const description = snippet.description || '';
       const title = snippet.title || '';
-
-      // 既存のパーサーでクレジット（作詞・作曲など）を自動抽出
-      const parsed = parseDescription(description, title, snippet.tags || []);
 
       return {
         id: `yt_${item.id}`,
@@ -51,13 +43,12 @@ export async function searchYouTubeOnDemand(query: string): Promise<VocaDBSong[]
         publishDate: snippet.publishedAt,
         youtubeId: item.id,
         niconicoId: undefined,
-        bpm: parsed.bpm,
-        vocalType: parsed.vocalType,
-        isEventCollab: parsed.isEventCollab,
-        credits: parsed.credits.map(c => ({
-          role: c.role,
-          creatorName: c.name,
-        })),
+        credits: [
+          {
+            role: 'Composer',
+            creatorName: snippet.channelTitle || 'Unknown',
+          },
+        ],
         viewCount: stats?.viewCount ? parseInt(stats.viewCount, 10) : undefined,
       };
     });
