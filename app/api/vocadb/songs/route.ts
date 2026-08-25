@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-// 外部APIのエンドポイントをファイル内に安全に直定義（ファイル分割によるモジュール迷子を防ぐ）
+// 外部APIのエンドポイント
 const API_ENDPOINTS = {
   VOCADB_SONGS: 'https://vocadb.net/api/songs',
   VOCADB_ARTISTS: 'https://vocadb.net/api/artists',
@@ -32,7 +32,7 @@ function sanitizeDescription(description: string = ''): string {
     .slice(0, 1000);
 }
 
-// 拡張版：Gemini APIを使った「クレジット抽出 ＆ 検索クエリとの関連度（ノイズ）判定」
+// 調整版：個人・インディーズ作品を取りこぼさず、無関係な大御所ノイズだけを弾くGemini判定
 async function parseCreditsAndRelevanceWithGemini(
   description: string = '', 
   channelTitle: string = '', 
@@ -58,8 +58,9 @@ async function parseCreditsAndRelevanceWithGemini(
       'チャンネル名: "' + channelTitle + '"\n' +
       '概要欄:\n' + safeDescription + '\n\n' +
       '【タスク1：関連度判定 (isRelevant)】\n' +
-      'この動画は、検索クエリ "' + query + '" に関連する音楽作品、あるいは関係するクリエイター（本人や関連アーティスト）の動画と言えますか？\n' +
-      '全く関係のない動画（例: 検索ワードと無関係な有名アーティストの公式MVや、単なるレコメンド違いなど）である場合は false、関連している場合は true にしてください。\n\n' +
+      'この動画は、検索クエリ "' + query + '" に何らかの関連性がありますか？\n' +
+      '（※重要：作詞、作曲、個人制作、同人音楽、関連するインディーズ楽曲、あるいは検索ワードの本人・関連人物の動画である可能性があれば、無関係な大御所アーティストの公式MV等でない限り、できるだけ true にしてください）\n' +
+      '完全に無関係な有名アーティストの公式MVや、全く別のジャンルの動画である場合のみ false にしてください。\n\n' +
       '【タスク2：クレジット抽出 (credits)】\n' +
       '音楽制作に関わったクリエイターのクレジットを抽出してください。\n' +
       '使用可能な8種類のロール: "music", "lyrics", "tuning", "singer", "mix", "illust", "movie", "dance"\n\n' +
