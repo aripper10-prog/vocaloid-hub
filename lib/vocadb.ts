@@ -96,12 +96,11 @@ export async function searchVocaDBArtists(query: string): Promise<VocaDBArtist[]
   }
 }
 
-// ★エラーになっていた `getVocaDBSongDetail` を復活
-export async function getVocaDBSongDetail(id: string): Promise<VocaDBSong | null> {
+// 楽曲詳細取得（page.tsxが求めている { song: ... } 構造に合わせる）
+export async function getVocaDBSongDetail(id: string): Promise<{ song: VocaDBSong } | null> {
   try {
-    // もしYouTube由来のID（yt_...）の場合
     if (id.startsWith('yt_')) {
-      return null; // または必要に応じた処理
+      return null;
     }
 
     const res = await fetch(`https://vocadb.net/api/songs/${id}?fields=Artists,PVs,ThumbUrl`, {
@@ -115,7 +114,7 @@ export async function getVocaDBSongDetail(id: string): Promise<VocaDBSong | null
     if (!res.ok) return null;
     const song = await res.json();
 
-    return {
+    const formattedSong: VocaDBSong = {
       id: String(song.id),
       title: song.name,
       artists: song.artists ? song.artists.map((a: any) => ({ name: a.name })) : [],
@@ -128,6 +127,8 @@ export async function getVocaDBSongDetail(id: string): Promise<VocaDBSong | null
       credits: [],
       viewCount: 0,
     };
+
+    return { song: formattedSong };
   } catch (error) {
     console.error('Error fetching song detail:', error);
     return null;
