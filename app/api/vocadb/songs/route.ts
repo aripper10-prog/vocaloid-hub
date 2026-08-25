@@ -17,12 +17,14 @@ function shouldSearchYouTube(query: string): boolean {
   return personalKeywords.some((keyword) => q.includes(keyword));
 }
 
+// 【安全対策1】概要欄をサニタイズ（プロンプトインジェクション対策として長すぎるテキストや特殊な指示文をカット）
 function sanitizeDescription(description: string = ''): string {
   return description
-    .replace(/```/g, '')
-    .slice(0, 1000);
+    .replace(/```/g, '') // バッククォートを除去
+    .slice(0, 1000);     // 長すぎる概要欄は最初の1000文字に制限
 }
 
+// Gemini APIを使った高精度クレジット抽出 ＆ 職域判定（安全対策強化版・型エラー回避のためany[]に修正）
 async function parseCreditsWithGemini(description: string = '', channelTitle: string = '', query: string = ''): Promise<any[]> {
   const apiKey = process.env.GEMINI_API_KEY;
   const safeDescription = sanitizeDescription(description);
@@ -167,14 +169,16 @@ export async function GET(request: Request) {
         songTypes: songTypes,
       });
 
-      // ★ 超重要：artistIdがすでに特定できている場合は、余計なqueryを渡さずartistIdで完全に引く
-      if (artistId && !isNaN(Number(artistId))) {
-        vocaParams.append('artistId[]', artistId);
-        vocaParams.set('artistParticipationStatus', 'Everything');
-      } else if (rawQuery.trim()) {
-        // アーティストIDがない場合のみ、通常のクエリ検索を行う
+      // 曲名検索または入力されたクエリがある場合は最優先でセット
+      if (rawQuery.trim()) {
         vocaParams.set('query', rawQuery.trim());
         vocaParams.set('nameMatchMode', 'Auto');
+      }
+
+      // クリエイターモードかつartistIdがある場合のみ適用
+      if (mode === 'creator' && artistId && !isNaN(Number(artistId))) {
+        vocaParams.append('artistId[]', artistId);
+        vocaParams.set('artistParticipationStatus', 'Everything');
       }
 
       if (role && role !== 'all' && VOCADB_ROLE_MAP[role]) {
@@ -187,6 +191,8 @@ export async function GET(request: Request) {
       }
 
       const vocaUrl = `[https://vocadb.net/api/songs?$](https://vocadb.net/api/songs?$){vocaParams.toString()}`;
+      console.log('🌐 VocaDB API Request:', vocaUrl);
+
       const vocaRes = await fetch(vocaUrl, {
         headers: {
           Accept: 'application/json',
