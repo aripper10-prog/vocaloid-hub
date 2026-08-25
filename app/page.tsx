@@ -670,10 +670,18 @@ function HomeContent() {
           ) : filteredSongs.length === 0 ? (
             <div
               className={`min-h-[25vh] rounded-3xl border border-dashed flex flex-col items-center justify-center p-8 text-center gap-3 ${
-                isDark ? 'border-slate-800 text-slate-500' : 'border-slate-300 text-slate-600'
+                isDark ? 'border-slate-800 text-slate-400' : 'border-slate-300 text-slate-600'
               }`}
             >
-              <p className="text-sm font-medium">一致する楽曲が見つかりませんでした。</p>
+              <div className="text-2xl mb-1">🔍</div>
+              <p className="text-sm font-bold">
+                {urlQuery ? '条件に一致する楽曲が見つかりませんでした' : '表示できる楽曲がありません'}
+              </p>
+              <p className="text-xs opacity-60">
+                {urlQuery 
+                  ? '検索キーワードや職域フィルターを変更して再度お試しください。' 
+                  : '上の検索窓から曲名やクリエイター名を入力して探索を始めてください。'}
+              </p>
             </div>
           ) : (
             <>
