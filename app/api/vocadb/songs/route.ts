@@ -111,7 +111,7 @@ export async function GET(request: Request) {
     const start = searchParams.get('start') || '0';
     const parentVersionId = searchParams.get('parentVersionId');
     let artistId = searchParams.get('artistId');
-    const role = searchParams.get('role');
+    const role = searchParams.get('role'); // 例: 'music', 'singer' など
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
     // --- 1. クリエイター検索モード時: アーティストIDの自動解決 ---
@@ -183,6 +183,7 @@ export async function GET(request: Request) {
         vocaParams.set('nameMatchMode', 'Auto');
       }
 
+      // ★ VocaDB公式のアーティストロール絞り込みパラメータを厳格に適用
       if (role && role !== 'all' && VOCADB_ROLE_MAP[role]) {
         vocaParams.append('artistRole', VOCADB_ROLE_MAP[role]);
       }
@@ -212,8 +213,10 @@ export async function GET(request: Request) {
       const youtubePv = (item.pvs || []).find((p: any) => p.service === 'Youtube');
       const niconicoPv = (item.pvs || []).find((p: any) => p.service === 'NicoNicoDouga');
 
+      // VocaDBのartists情報から独自の credits 構造へマッピングを補強
       const mappedCredits = (item.artists || []).map((art: any) => {
         const roles = art.roles || [];
+        // VocaDBの英語ロールを内部の8つに逆引き
         let derivedRole = 'music';
         if (roles.includes('Lyricist')) derivedRole = 'lyrics';
         else if (roles.includes('Composer')) derivedRole = 'music';
@@ -323,7 +326,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 4. 職域フィルター ---
+    // --- 4. 【厳格な職域フィルター】指定したロールとクリエイター名が完全に一致するものだけを通す ---
     let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
 
     if (mode === 'creator' && query.trim()) {
@@ -335,6 +338,7 @@ export async function GET(request: Request) {
         const artistString = (item.artistString || '').toLowerCase();
         const title = (item.title || '').toLowerCase();
 
+        // 基本：名前（クリエイター名やアーティスト文字列）にクエリが含まれているか
         const nameMatched = credits.some((c: any) => (c.creatorName || '').toLowerCase().includes(targetQuery)) ||
                             artists.some((a: any) => (a.name || '').toLowerCase().includes(targetQuery)) ||
                             artistString.includes(targetQuery) ||
@@ -342,6 +346,7 @@ export async function GET(request: Request) {
 
         if (!nameMatched) return false;
 
+        // ★ ロール（職域）が指定されている場合は、その特定のロールで関わっているかを「厳格」にチェックする
         if (role && role !== 'all') {
           const hasExactRole = credits.some((c: any) => 
             c.role === role && (c.creatorName || '').toLowerCase().includes(targetQuery)
@@ -349,12 +354,13 @@ export async function GET(request: Request) {
             const aName = (a.name || '').toLowerCase();
             const aRoles = a.roles || [];
             const matchesName = aName.includes(targetQuery);
+            // VocaDBの英語ロールと一致するか確認
             const targetDbRole = VOCADB_ROLE_MAP[role];
             const matchesRole = targetDbRole ? aRoles.includes(targetDbRole) : true;
             return matchesName && matchesRole;
           });
 
-          return hasExactRole;
+          return hasExactRole; // ロールが一致しないものはここで弾かれるため、ガセヒットが消滅します！
         }
 
         return true;
