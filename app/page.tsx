@@ -225,7 +225,8 @@ function HomeContent() {
 
   const filteredSongs = songs.filter((song) => {
     if (urlMode === 'creator' && urlRole !== 'all') {
-      const hasRole = song.credits.some((c) => c.role === urlRole);
+      // 安全ガードを付与（song.credits が undefined でも絶対に落ちない）
+      const hasRole = (song.credits || []).some((c) => c.role === urlRole);
       if (!hasRole) return false;
     }
     return true;
@@ -310,7 +311,7 @@ function HomeContent() {
           </button>
         </header>
 
-        {/* 2つの独立検索パネル（z-30でスタッキングコンテキストを最前面化） */}
+        {/* 2つの独立検索パネル */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-5 relative z-30">
           {/* 1. 曲名検索窓 */}
           <div
@@ -425,7 +426,7 @@ function HomeContent() {
             </form>
             <p className="text-[10px] opacity-50">※担当クレジットが含まれる作品のみを抽出</p>
 
-            {/* サジェストボックス（z-50で最前面表示） */}
+            {/* サジェストボックス */}
             {showSuggestions && artistSuggestions.length > 0 && (
               <div
                 className={`absolute top-full left-0 right-0 mt-2 rounded-2xl border shadow-2xl backdrop-blur-2xl z-50 overflow-hidden max-h-72 overflow-y-auto ${
@@ -546,7 +547,6 @@ function HomeContent() {
               : 'bg-white/80 border-slate-200/80 shadow-slate-100'
           }`}
         >
-          {/* ソート順 */}
           <div className="flex flex-wrap gap-2 items-center">
             {SORT_OPTIONS.map((opt) => (
               <button
@@ -565,7 +565,6 @@ function HomeContent() {
             ))}
           </div>
 
-          {/* モード別フィルター */}
           {urlMode === 'song' ? (
             <div
               className={`flex flex-wrap gap-2 items-center pt-3 border-t ${
@@ -645,7 +644,7 @@ function HomeContent() {
         <section className="space-y-6 relative z-10">
           <div className="flex items-center justify-between text-xs opacity-60 px-2 font-medium">
             <span>
-              ヒット総数: <strong className="text-cyan-500 font-bold">{totalCount.toLocaleString()}</strong> 件 
+              ヒット総数: <strong className="text-cyan-500 font-bold">{totalCount.toLocaleString()}</strong> 件{' '}
               {totalPages > 1 && `（ページ ${urlPage} / ${totalPages}）`}
             </span>
             <span>1ページ {PAGE_SIZE} 件表示</span>
