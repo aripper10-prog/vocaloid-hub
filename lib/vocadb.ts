@@ -44,14 +44,19 @@ export async function searchVocaDBSongs(
       sort: sort,
       maxResults: String(pageSize),
       start: String((page - 1) * pageSize),
+      _t: String(Date.now()), // キャッシュ回避用のダミーパラメータ
     });
 
     if (artistId) params.set('artistId', artistId);
     if (role && role !== 'all') params.set('role', role);
     if (songTypes) params.set('songTypes', songTypes);
 
+    // 強制的にキャッシュをさせない設定
     const res = await fetch(`/api/vocadb/songs?${params.toString()}`, {
       cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
     });
 
     if (!res.ok) {
@@ -60,7 +65,6 @@ export async function searchVocaDBSongs(
 
     const data = await res.json();
     
-    // artistStringの補完
     const items = (data.items || []).map((song: any) => ({
       ...song,
       artistString:
@@ -77,7 +81,6 @@ export async function searchVocaDBSongs(
     return { items: [], totalCount: 0 };
   }
 }
-
 // クリエイター候補検索
 export async function searchVocaDBArtists(query: string): Promise<VocaDBArtist[]> {
   if (!query.trim()) return [];
