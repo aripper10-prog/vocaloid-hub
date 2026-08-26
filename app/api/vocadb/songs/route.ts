@@ -490,7 +490,7 @@ export async function GET(request: Request) {
       }
     });
 
-    The allItems = Array.from(mergedMap.values());
+ const allItems = Array.from(mergedMap.values());
     const totalCount = vocaData.totalCount > 0 ? vocaData.totalCount : allItems.length;
 
     return NextResponse.json(
