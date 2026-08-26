@@ -108,6 +108,10 @@ export async function GET(request: Request) {
     let artistId = searchParams.get('artistId');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
+    // ★ タグ検索パラメータを完全復活
+    const tagId = searchParams.get('tagId');
+    const tag = searchParams.get('tag');
+
     if (mode === 'creator' && query.trim() && !artistId) {
       try {
         const artistSearchUrl = API_ENDPOINTS.VOCADB_ARTISTS + '?query=' + encodeURIComponent(query.trim()) + '&nameMatchMode=Auto&maxResults=10&lang=Japanese';
@@ -171,6 +175,10 @@ export async function GET(request: Request) {
         vocaParams.append('artistId[]', artistId);
         vocaParams.set('artistParticipationStatus', 'Everything');
       }
+
+      // ★ VocaDBへタグパラメータを確実に送信
+      if (tagId) vocaParams.set('tagId', tagId);
+      if (tag) vocaParams.set('tag', tag);
 
       if (parentVersionId && !isNaN(Number(parentVersionId))) {
         vocaParams.set('parentVersionId', parentVersionId);
