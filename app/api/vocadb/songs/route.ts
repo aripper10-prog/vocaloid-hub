@@ -124,14 +124,14 @@ export async function GET(request: Request) {
     let items: any[] = [];
 
     // ==========================================
-    // 👑 プライマリ・オンリーエンジン: YouTube完全一致検索 ＋ Gemini概要欄解析
-    // (VocaDBのartistId等は一切無視し、常にYouTubeのライブ概要欄から10系統を構築する)
+    // 👑 プライマリ・オンリーエンジン: YouTube検索 ＋ Gemini概要欄解析
     // ==========================================
     if (query.trim() && ytApiKey) {
       try {
-        const exactQuery = `"${query.trim()}"`; // 検索汚染を防ぐ完全一致
+        // ★ ダブルクォーテーションによる過剰な完全一致を外し、通常の安全な検索キーワードにする
+        const searchQuery = query.trim();
         const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
-          exactQuery
+          searchQuery
         )}&maxResults=30&key=${ytApiKey}`;
 
         const ytRes = await fetch(ytUrl);
