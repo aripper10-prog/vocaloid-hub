@@ -8,29 +8,29 @@ const API_ENDPOINTS = {
   YOUTUBE_VIDEOS: 'https://www.googleapis.com/youtube/v3/videos',
 };
 
-// フロントエンドの ROLE_CONFIG と完全に一致させる許可されたロール一覧
 const VALID_ROLES = ['music', 'lyrics', 'tuning', 'singer', 'mix', 'illust', 'movie', 'dance'];
 
 function sanitizeDescription(description: string = ''): string {
-  return description.replace(/```/g, '').slice(0, 1000);
+  return description.replace(/```/g, '').slice(0, 1500); // 概要欄の読み込み文字数を少し増やして情報量アップ
 }
 
-// ロール文字列のバリデーションと正規化
+// ロール文字列のバリデーションと正規化（より多様な表記ゆれに対応）
 function normalizeRole(role: string = ''): string {
   const lower = role.trim().toLowerCase();
   if (VALID_ROLES.includes(lower)) return lower;
   
-  // 表記ゆれの救済
-  if (lower.includes('composer') || lower.includes('arranger') || lower.includes('音楽') || lower.includes('作曲') || lower.includes('編曲')) return 'music';
-  if (lower.includes('lyric') || lower.includes('作詞')) return 'lyrics';
-  if (lower.includes('vocal') || lower.includes('singer') || lower.includes('歌') || lower.includes('ボーカル')) return 'singer';
-  if (lower.includes('mix') || lower.includes('master') || lower.includes('マスタリング')) return 'mix';
-  if (lower.includes('illust') || lower.includes('art') || lower.includes('イラスト') || lower.includes('絵')) return 'illust';
-  if (lower.includes('movie') || lower.includes('animat') || lower.includes('video') || lower.includes('動画') || lower.includes('映像')) return 'movie';
-  if (lower.includes('tun') || lower.includes('調声')) return 'tuning';
-  if (lower.includes('dance') || lower.includes('振付') || lower.includes('ダンス')) return 'dance';
+  if (lower.includes('lyric') || lower.includes('作詞') || lower.includes('詩')) return 'lyrics';
+  if (lower.includes('vocal') || lower.includes('singer') || lower.includes('歌') || lower.includes('ボーカル') || lower.includes('vocaloid') || lower.includes('初音ミク') || lower.includes('重音テト')) return 'singer';
+  if (lower.includes('mix') || lower.includes('master') || lower.includes('マスタリング') || lower.includes('整音')) return 'mix';
+  if (lower.includes('illust') || lower.includes('art') || lower.includes('イラスト') || lower.includes('絵') || lower.includes('キャラクターデザイン') || lower.includes('jacket')) return 'illust';
+  if (lower.includes('movie') || lower.includes('animat') || lower.includes('video') || lower.includes('動画') || lower.includes('映像') || lower.includes('MV') || lower.includes('mv')) return 'movie';
+  if (lower.includes('tun') || lower.includes('調声') || lower.includes('vsqx')) return 'tuning';
+  if (lower.includes('dance') || lower.includes('振付') || lower.includes('ダンス') || lower.includes('choreograph')) return 'dance';
+  
+  // デフォルト（作曲・編曲・Music / Guitar / Bass などの楽器隊も広く music に統合）
+  if (lower.includes('music') || lower.includes('composer') || lower.includes('arranger') || lower.includes('作編曲') || lower.includes('作曲') || lower.includes('編曲') || lower.includes('guitar')|| lower.includes('bass') || lower.includes('piano')) return 'music';
 
-  return 'music'; // デフォルト
+  return 'music';
 }
 
 async function parseCreditsWithGemini(
@@ -53,20 +53,28 @@ async function parseCreditsWithGemini(
 
   try {
     const prompt = 
-      '以下の情報はYouTube動画のメタデータです。\n' +
+      '以下のYouTube動画のメタデータ（概要欄）から、音楽制作に関わった**すべてのクリエイターとそれぞれの担当職域を余さず漏れなく**抽出してください。\n\n' +
       '検索クエリ: "' + query + '"\n' +
       'チャンネル名: "' + channelTitle + '"\n' +
       '概要欄:\n' + safeDescription + '\n\n' +
       '【タスク1：関連度判定 (isRelevant)】\n' +
       'この動画は、検索クエリ "' + query + '" に本当に関連する音楽作品、あるいは関係するクリエイター自身の動画と言えますか？\n' +
-      '無関係な有名アーティスト（例: 米津玄師など）の公式MVやヒット曲である場合は、検索ワードと一致していても必ず false にしてください。\n' +
-      '個人制作、ボカロ、インディーズ、同人、あるいは検索クエリの本人や関連曲である場合のみ true にしてください。\n\n' +
-      '【タスク2：クレジット抽出 (credits)】\n' +
-      '音楽制作に関わったクリエイターのクレジットを抽出してください。\n' +
-      '使用可能な8種類のロール（必ずこの中から選んでください）: "music", "lyrics", "tuning", "singer", "mix", "illust", "movie", "dance"\n\n' +
+      '無関係な有名アーティストの公式MVやヒット曲である場合は必ず false にしてください。個人制作、ボカロ、インディーズ、同人、あるいは検索クエリの本人や関連曲である場合のみ true にしてください。\n\n' +
+      '【タスク2：全クレジット抽出 (credits)】\n' +
+      '概要欄に書かれている「作詞」「作曲・編曲」「イラスト」「動画・映像」「MIX・マスタリング」「調声」「ボーカル・歌唱」「ダンス・振付」などの情報をすべて拾い上げ、配列として抽出してください。\n' +
+      '使用可能な8種類のロール（これ以外の文字列は使わないでください）:\n' +
+      '- "music" (作曲、編曲、作編曲、楽器演奏など)\n' +
+      '- "lyrics" (作詞)\n' +
+      '- "tuning" (調声)\n' +
+      '- "singer" (ボーカル、歌唱、歌い手、ボカロイド名など)\n' +
+      '- "mix" (MIX、マスタリング、音源編集)\n' +
+      '- "illust" (イラスト、アートワーク、ジャケット)\n' +
+      '- "movie" (動画、映像、MV制作、アニメーション)\n' +
+      '- "dance" (振付、ダンス)\n\n' +
+      '※概要欄に記載のある人（例: "Illust: 〇〇", "Mix: 〇〇" など）は省略せず、すべて個別のオブジェクトとして抽出してください。\n\n' +
       '【出力形式の指定】\n' +
       '余計な挨拶やマークダウンは一切含めず、純粋なJSON形式のみを返してください。\n' +
-      '{\n  "isRelevant": true,\n  "credits": [\n    {"role": "music", "creatorName": "〇〇"}\n  ]\n}';
+      '{\n  "isRelevant": true,\n  "credits": [\n    {"role": "music", "creatorName": "〇〇"},\n    {"role": "illust", "creatorName": "〇〇"},\n    {"role": "movie", "creatorName": "〇〇"}\n  ]\n}';
 
     const res = await fetch(API_ENDPOINTS.GEMINI_FLASH + '?key=' + apiKey, {
       method: 'POST',
@@ -94,9 +102,14 @@ async function parseCreditsWithGemini(
         creatorName: c.creatorName || channelTitle,
       }));
 
+      // 重複するロール＆クリエイター名があればまとめる
+      const uniqueCredits = Array.from(
+        new Map(normalizedCredits.map((c: any) => [`${c.role}_${c.creatorName}`, c])).values()
+      );
+
       return {
         isRelevant: typeof parsed.isRelevant === 'boolean' ? parsed.isRelevant : true,
-        credits: normalizedCredits.length > 0 ? normalizedCredits : [
+        credits: uniqueCredits.length > 0 ? uniqueCredits : [
           { role: 'lyrics', creatorName: query.trim() || 'Unknown' },
           { role: 'music', creatorName: channelTitle },
         ],
@@ -288,7 +301,6 @@ export async function GET(request: Request) {
                     return null;
                   }
 
-                  // フロント側のフィルタ（matchArtistRole）でYouTube曲も正しくヒットするように artists側にもロールを同期させる
                   const mappedArtists = parsedCredits.map((c: any) => {
                     let vdbRole = 'Composer';
                     if (c.role === 'lyrics') vdbRole = 'Lyricist';
