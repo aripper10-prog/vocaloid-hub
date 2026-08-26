@@ -16,12 +16,6 @@ const VOCADB_ROLE_MAP: Record<string, string> = {
 // 10系統の有効なロール
 const VALID_ROLES = ['music', 'lyrics', 'instrument', 'tuning', 'singer', 'mix', 'illust', 'movie', 'dance', 'other'];
 
-function shouldSearchYouTube(query: string): boolean {
-  const q = query.trim().toLowerCase();
-  const personalKeywords = ['作詞師ari', 'ari', 'alice and lemonade', 'projectフィクション', 'ido-lumina', 'ヴァネッサ', 'ado'];
-  return personalKeywords.some((keyword) => q.includes(keyword));
-}
-
 // 10系統への汎用的なロール文字列の正規化
 function normalizeRole(role: string = ''): string {
   const lower = role.trim().toLowerCase();
@@ -75,8 +69,8 @@ ${description}
 
 【厳格なルール】
 - 動画タイトル、曲名、ハッシュタグ（#...）、企画名などをクリエイター名（creatorName）に設定することは絶対に禁止です。
-- ボーカルとして記載されている人物は必ず "singer" にしてください。
-- ボカロPや作曲者は必ず "music" にしてください。
+- 歌っている人（ボーカル）は必ず "singer" にしてください。
+- ボカロPや作曲者は必ず "music" にしてください。Ado等の歌い手が作曲者に混入してはなりません。
 
 【出力形式の指定】
 余計な挨拶やマークダウンのバッククォート（\`\`\`など）は一切含めず、純粋なJSON配列のみを返してください。例：
@@ -247,7 +241,7 @@ export async function GET(request: Request) {
 
     const ytApiKey = process.env.YOUTUBE_API_KEY;
 
-    // ★ 【最重要拡張】VocaDBの登録曲であっても、YouTube PVがあれば概要欄をGeminiにスキャンさせて正しい10系統で上書きする
+    // --- 3. VocaDB取得曲に対して、必ずYouTube概要欄をGeminiで再スキャンし、メタデータを完全に上書き・浄化する ---
     const vocaItems = await Promise.all(
       (vocaData.items || []).map(async (item: any) => {
         const youtubePv = (item.pvs || []).find((p: any) => p.service === 'Youtube');
@@ -256,6 +250,7 @@ export async function GET(request: Request) {
 
         let parsedCredits: any[] = [];
 
+        // YouTube PVがありAPIキーがあれば、概要欄をGeminiに強制スキャンさせてVocaDBの汚染されたロールを上書きする
         if (ytId && ytApiKey) {
           const ytDetails = await fetchYouTubeDetails(ytId, ytApiKey);
           if (ytDetails) {
@@ -266,7 +261,7 @@ export async function GET(request: Request) {
           }
         }
 
-        // Geminiでスキャンできなかった場合のみVocaDBのメタデータにフォールバック
+        // Geminiスキャンに失敗した場合のみVocaDBのメタデータにフォールバック
         if (parsedCredits.length === 0) {
           parsedCredits = (item.artists || []).map((art: any) => {
             const roles = art.roles || [];
@@ -304,14 +299,13 @@ export async function GET(request: Request) {
       })
     );
 
-    // --- 3. YouTube検索の統合判定 ---
+    // --- 4. 完全一致の安全なYouTube検索による新規未登録曲の発掘枠 ---
     let ytItems: any[] = [];
-    const isPersonalQuery = shouldSearchYouTube(query);
-    const shouldFetchYT = Boolean(query.trim() && ytApiKey && (vocaItems.length === 0 || isPersonalQuery || mode === 'creator'));
+    const shouldFetchYT = Boolean(query.trim() && ytApiKey);
 
     if (shouldFetchYT) {
       try {
-        const exactQuery = `"${query.trim()}"`;
+        const exactQuery = `"${query.trim()}"`; // 検索汚染を防ぐ完全一致
         const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
           exactQuery
         )}&maxResults=20&key=${ytApiKey}`;
@@ -382,7 +376,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // --- 4. 職域フィルターの適用 ---
+    // --- 5. 重複排除とマージ ---
     let allItems = [...vocaItems, ...ytItems.filter((yt: any) => !vocaItems.some((v: any) => String(v.id) === String(yt.id)))];
 
     if (mode === 'creator' && query.trim()) {
