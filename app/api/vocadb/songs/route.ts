@@ -8,19 +8,29 @@ const API_ENDPOINTS = {
   YOUTUBE_VIDEOS: 'https://www.googleapis.com/youtube/v3/videos',
 };
 
-const VOCADB_ROLE_MAP: Record<string, string> = {
-  music: 'Composer',
-  lyrics: 'Lyricist',
-  tuning: 'VoiceManipulator',
-  illust: 'Illustrator',
-  movie: 'Animator',
-  mix: 'Mixer',
-  singer: 'Vocalist',
-  dance: 'Other',
-};
+// フロントエンドの ROLE_CONFIG と完全に一致させる許可されたロール一覧
+const VALID_ROLES = ['music', 'lyrics', 'tuning', 'singer', 'mix', 'illust', 'movie', 'dance'];
 
 function sanitizeDescription(description: string = ''): string {
   return description.replace(/```/g, '').slice(0, 1000);
+}
+
+// ロール文字列のバリデーションと正規化
+function normalizeRole(role: string = ''): string {
+  const lower = role.trim().toLowerCase();
+  if (VALID_ROLES.includes(lower)) return lower;
+  
+  // 表記ゆれの救済
+  if (lower.includes('composer') || lower.includes('arranger') || lower.includes('音楽') || lower.includes('作曲') || lower.includes('編曲')) return 'music';
+  if (lower.includes('lyric') || lower.includes('作詞')) return 'lyrics';
+  if (lower.includes('vocal') || lower.includes('singer') || lower.includes('歌') || lower.includes('ボーカル')) return 'singer';
+  if (lower.includes('mix') || lower.includes('master') || lower.includes('マスタリング')) return 'mix';
+  if (lower.includes('illust') || lower.includes('art') || lower.includes('イラスト') || lower.includes('絵')) return 'illust';
+  if (lower.includes('movie') || lower.includes('animat') || lower.includes('video') || lower.includes('動画') || lower.includes('映像')) return 'movie';
+  if (lower.includes('tun') || lower.includes('調声')) return 'tuning';
+  if (lower.includes('dance') || lower.includes('振付') || lower.includes('ダンス')) return 'dance';
+
+  return 'music'; // デフォルト
 }
 
 async function parseCreditsWithGemini(
@@ -53,10 +63,10 @@ async function parseCreditsWithGemini(
       '個人制作、ボカロ、インディーズ、同人、あるいは検索クエリの本人や関連曲である場合のみ true にしてください。\n\n' +
       '【タスク2：クレジット抽出 (credits)】\n' +
       '音楽制作に関わったクリエイターのクレジットを抽出してください。\n' +
-      '使用可能な8種類のロール: "music", "lyrics", "tuning", "singer", "mix", "illust", "movie", "dance"\n\n' +
+      '使用可能な8種類のロール（必ずこの中から選んでください）: "music", "lyrics", "tuning", "singer", "mix", "illust", "movie", "dance"\n\n' +
       '【出力形式の指定】\n' +
       '余計な挨拶やマークダウンは一切含めず、純粋なJSON形式のみを返してください。\n' +
-      '{\n  "isRelevant": true,\n  "credits": [\n    {"role": "lyrics", "creatorName": "〇〇"}\n  ]\n}';
+      '{\n  "isRelevant": true,\n  "credits": [\n    {"role": "music", "creatorName": "〇〇"}\n  ]\n}';
 
     const res = await fetch(API_ENDPOINTS.GEMINI_FLASH + '?key=' + apiKey, {
       method: 'POST',
@@ -78,9 +88,18 @@ async function parseCreditsWithGemini(
       
       const parsed = JSON.parse(cleanJson);
 
+      const rawCredits = Array.isArray(parsed.credits) ? parsed.credits : [];
+      const normalizedCredits = rawCredits.map((c: any) => ({
+        role: normalizeRole(c.role),
+        creatorName: c.creatorName || channelTitle,
+      }));
+
       return {
         isRelevant: typeof parsed.isRelevant === 'boolean' ? parsed.isRelevant : true,
-        credits: Array.isArray(parsed.credits) ? parsed.credits : [],
+        credits: normalizedCredits.length > 0 ? normalizedCredits : [
+          { role: 'lyrics', creatorName: query.trim() || 'Unknown' },
+          { role: 'music', creatorName: channelTitle },
+        ],
       };
     }
   } catch (e) {
@@ -108,7 +127,6 @@ export async function GET(request: Request) {
     let artistId = searchParams.get('artistId');
     const songTypes = searchParams.get('songTypes') || 'Original,Cover,Remix,Other,MusicPV';
 
-    // ★ タグ検索パラメータを完全復活
     const tagId = searchParams.get('tagId');
     const tag = searchParams.get('tag');
 
@@ -176,7 +194,6 @@ export async function GET(request: Request) {
         vocaParams.set('artistParticipationStatus', 'Everything');
       }
 
-      // ★ VocaDBへタグパラメータを確実に送信
       if (tagId) vocaParams.set('tagId', tagId);
       if (tag) vocaParams.set('tag', tag);
 
@@ -271,14 +288,32 @@ export async function GET(request: Request) {
                     return null;
                   }
 
+                  // フロント側のフィルタ（matchArtistRole）でYouTube曲も正しくヒットするように artists側にもロールを同期させる
+                  const mappedArtists = parsedCredits.map((c: any) => {
+                    let vdbRole = 'Composer';
+                    if (c.role === 'lyrics') vdbRole = 'Lyricist';
+                    else if (c.role === 'singer') vdbRole = 'Vocalist';
+                    else if (c.role === 'mix') vdbRole = 'Mixer';
+                    else if (c.role === 'illust') vdbRole = 'Illustrator';
+                    else if (c.role === 'movie') vdbRole = 'Animator';
+                    else if (c.role === 'tuning') vdbRole = 'VoiceManipulator';
+
+                    return {
+                      name: c.creatorName,
+                      isSupport: false,
+                      roles: [vdbRole],
+                      artist: { id: 0, name: c.creatorName, artistType: 'Producer' },
+                    };
+                  });
+
                   return {
                     id: 'yt_' + item.id,
                     title: item.snippet?.title || 'Untitled',
-                    artists: [
+                    artists: mappedArtists.length > 0 ? mappedArtists : [
                       {
                         name: channelTitle,
                         isSupport: false,
-                        roles: ['Producer'],
+                        roles: ['Composer'],
                         artist: { id: 0, name: channelTitle, artistType: 'Producer' },
                       },
                     ],
