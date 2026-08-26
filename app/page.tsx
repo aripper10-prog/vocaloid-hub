@@ -23,6 +23,12 @@ const ROLE_CONFIG: Record<
     darkBadge: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
     lightBadge: 'bg-purple-50 text-purple-700 border-purple-200',
   },
+  instrument: {
+    label: '🎸 演奏・楽器隊',
+    icon: '🎸',
+    darkBadge: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30',
+    lightBadge: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+  },
   tuning: {
     label: '🎛️ 調声',
     icon: '🎛️',
@@ -97,7 +103,6 @@ function SongModal({
   useEffect(() => {
     if (!songId) return;
 
-    // ★ YouTube由来の曲（idが 'yt_' で始まる場合）はVocaDB詳細APIを叩かず、initialSongのクレジット等を完全に死守する
     if (songId.startsWith('yt_') && initialSong) {
       setDetail({ song: initialSong, derivedSongs: [], originalSong: null });
       setLoading(false);
@@ -356,14 +361,12 @@ function HomeContent() {
   const urlMode = (searchParams.get('mode') as 'song' | 'creator') || 'song';
   const urlQuery = searchParams.get('query') || searchParams.get('q') || '';
   
-  // ★ 職域フィルタ用パラメータ
   const urlRole = searchParams.get('role') || 'all';
   const [selectedRole, setSelectedRole] = useState(urlRole);
 
   const urlArtistId = searchParams.get('artistId') || '';
   const urlPage = parseInt(searchParams.get('page') || '1', 10);
   
-  // ★ 原曲フィルタ用パラメータ
   const urlSongType = searchParams.get('songType') || 'all';
 
   const [songQueryInput, setSongQueryInput] = useState(urlMode === 'song' ? urlQuery : '');
@@ -430,7 +433,6 @@ function HomeContent() {
           }
         }
 
-        // ★ 原曲フィルタの反映
         const songTypesParam =
           urlMode === 'song' && urlSongType === 'original'
             ? 'Original'
@@ -554,7 +556,6 @@ function HomeContent() {
     router.replace(`/?${params.toString()}`);
   };
 
-  // ★ 職域フィルタ変更ハンドラ
   const handleRoleChange = (role: string) => {
     setSelectedRole(role);
     const params = new URLSearchParams(searchParams.toString());
@@ -562,7 +563,6 @@ function HomeContent() {
     router.replace(`/?${params.toString()}`);
   };
 
-  // ★ 原曲フィルタ変更ハンドラ
   const handleSongTypeChange = (type: string) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set('songType', type);
@@ -574,7 +574,6 @@ function HomeContent() {
     setSort(newSort);
   };
 
-  // --- ★ 手元での厳格なフィルタリング（原曲フィルタ ＆ 職域フィルタの適用） ---
   const filteredSongs = songs.filter((song) => {
     let nameMatched = true;
     if (urlMode === 'creator' && urlQuery.trim()) {
@@ -590,7 +589,6 @@ function HomeContent() {
 
     if (!nameMatched) return false;
 
-    // ★ 職域フィルタ（role）の厳格な手元適用
     if (urlMode === 'creator' && selectedRole !== 'all') {
       const credits = song.credits || [];
       const artists = song.artists || [];
@@ -600,6 +598,7 @@ function HomeContent() {
         const aRoles = a.roles || [];
         if (selectedRole === 'music' && (aRoles.includes('Composer') || aRoles.includes('Arranger'))) return true;
         if (selectedRole === 'lyrics' && aRoles.includes('Lyricist')) return true;
+        if (selectedRole === 'instrument' && (aRoles.includes('Instrumentalist') || aRoles.includes('Guitarist') || aRoles.includes('Bassist') || aRoles.includes('Drummer'))) return true;
         if (selectedRole === 'singer' && aRoles.includes('Vocalist')) return true;
         if (selectedRole === 'mix' && aRoles.includes('Mixer')) return true;
         if (selectedRole === 'illust' && aRoles.includes('Illustrator')) return true;
@@ -618,22 +617,6 @@ function HomeContent() {
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
   const isDark = theme === 'dark';
-
-  const getPageNumbers = () => {
-    const pages: (number | string)[] = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      pages.push(1);
-      if (urlPage > 4) pages.push('...');
-      const start = Math.max(2, urlPage - 2);
-      const end = Math.min(totalPages - 1, urlPage + 2);
-      for (let i = start; i <= end; i++) pages.push(i);
-      if (urlPage < totalPages - 3) pages.push('...');
-      pages.push(totalPages);
-    }
-    return pages;
-  };
 
   return (
     <div
@@ -769,7 +752,7 @@ function HomeContent() {
           </div>
         </section>
 
-        {/* ★ ソート ＆ フィルターパネル（原曲フィルタ・職域フィルタを完全復活） */}
+        {/* ソート ＆ フィルターパネル */}
         <section
           className={`p-5 rounded-3xl border backdrop-blur-xl shadow-lg space-y-4 relative z-10 ${
             isDark ? 'bg-slate-900/40 border-slate-800/80' : 'bg-white/80 border-slate-200/80'
@@ -793,7 +776,6 @@ function HomeContent() {
             ))}
           </div>
 
-          {/* 曲名検索モード時の「原曲フィルタ」 */}
           {urlMode === 'song' ? (
             <div className={`flex flex-wrap gap-2 items-center pt-3 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-100'}`}>
               <button
@@ -819,7 +801,6 @@ function HomeContent() {
               </button>
             </div>
           ) : (
-            /* クリエイター検索モード時の「職域フィルタ」 */
             <div className={`flex flex-wrap gap-2 items-center pt-3 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-100'}`}>
               <button
                 onClick={() => handleRoleChange('all')}
