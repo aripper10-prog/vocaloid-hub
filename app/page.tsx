@@ -406,32 +406,33 @@ function HomeContent() {
       try {
         let currentArtistId = urlArtistId;
 
-        if (urlMode === 'creator' && urlQuery.trim() && !currentArtistId) {
-          try {
-            const artists = await searchVocaDBArtists(urlQuery.trim());
-            if (artists && artists.length > 0) {
-              const target = urlQuery.trim().toLowerCase();
-              let matched = artists.find((a: any) => {
-                const name = (a.name || '').toLowerCase();
-                const addNames = (a.additionalNames || '').toLowerCase();
-                const isProducer = (a.artistType || '').toLowerCase() === 'producer';
-                return isProducer && (name === target || addNames.includes(target) || target.includes(name));
-              });
+        // ★ もし新しいクエリで検索された際、URLのartistIdの文字列と現在の入力クエリが一致しない場合は、
+        // 古いartistIdの引きずりを防ぐために一度artistIdをクリアして再解決する
+        if (urlMode === 'creator' && urlQuery.trim()) {
+          const artists = await searchVocaDBArtists(urlQuery.trim());
+          if (artists && artists.length > 0) {
+            const target = urlQuery.trim().toLowerCase();
+            let matched = artists.find((a: any) => {
+              const name = (a.name || '').toLowerCase();
+              const addNames = (a.additionalNames || '').toLowerCase();
+              const isProducer = (a.artistType || '').toLowerCase() === 'producer';
+              return isProducer && (name === target || addNames.includes(target) || target.includes(name));
+            });
 
-              if (!matched) {
-                matched = artists.find((a: any) => (a.artistType || '').toLowerCase() === 'producer');
-              }
-              if (!matched) {
-                matched = artists[0];
-              }
+            if (!matched) {
+              matched = artists.find((a: any) => (a.artistType || '').toLowerCase() === 'producer');
+            }
+            if (!matched) {
+              matched = artists[0];
+            }
 
-              currentArtistId = String(matched.id);
+            const newArtistId = String(matched.id);
+            if (newArtistId !== urlArtistId) {
+              currentArtistId = newArtistId;
               const params = new URLSearchParams(searchParams.toString());
               params.set('artistId', currentArtistId);
               router.replace(`/?${params.toString()}`);
             }
-          } catch (e) {
-            console.error('Auto artistId resolution error:', e);
           }
         }
 
@@ -481,27 +482,14 @@ function HomeContent() {
     }
   };
 
-  const handleCreatorSearch = async (e: React.FormEvent) => {
+  // ★ クリエイター名検索時：古い artistId を一切持ち越さず、純粋に入力されたクエリで新しく検索を走らせる
+  const handleCreatorSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = creatorQueryInput.trim();
     if (!q) {
       handleResetAll();
       return;
     }
-
-    try {
-      const res = await searchVocaDBArtists(q);
-      if (res && res.length > 0) {
-        const matched = res[0];
-        router.push(
-          `/?mode=creator&artistId=${matched.id}&query=${encodeURIComponent(matched.name)}&role=${selectedRole}&page=1`
-        );
-        return;
-      }
-    } catch (err) {
-      console.error('Artist search on submit error:', err);
-    }
-
     router.push(`/?mode=creator&query=${encodeURIComponent(q)}&role=${selectedRole}&page=1`);
   };
 
