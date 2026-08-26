@@ -18,7 +18,7 @@ const VALID_ROLES = ['music', 'lyrics', 'instrument', 'tuning', 'singer', 'mix',
 
 function shouldSearchYouTube(query: string): boolean {
   const q = query.trim().toLowerCase();
-  const personalKeywords = ['作詞師ari', 'ari', 'alice and lemonade', 'projectフィクション', 'ido-lumina', 'ヴァネッサ'];
+  const personalKeywords = ['作詞師ari', 'ari', 'alice and lemonade', 'projectフィクション', 'ido-lumina', 'ヴァネッサ', 'ado'];
   return personalKeywords.some((keyword) => q.includes(keyword));
 }
 
@@ -74,8 +74,9 @@ async function parseCreditsWithGemini(description: string = '', channelTitle: st
 ${description}
 
 【厳格なルール】
-- 動画タイトル、曲名、ハッシュタグ（#...）、企画名（例: "Ido-Lumina"や"Projectフィクション"）をクリエイター名（creatorName）に設定することは絶対に禁止です。
+- 動画タイトル、曲名、ハッシュタグ（#...）、企画名などをクリエイター名（creatorName）に設定することは絶対に禁止です。
 - ボーカルとして記載されている人物は必ず "singer" にしてください。
+- ボカロPや作曲者は必ず "music" にしてください。
 
 【出力形式の指定】
 余計な挨拶やマークダウンのバッククォート（\`\`\`など）は一切含めず、純粋なJSON配列のみを返してください。例：
@@ -114,6 +115,27 @@ ${description}
     { role: 'lyrics', creatorName: query.trim() || 'Unknown' },
     { role: 'music', creatorName: channelTitle },
   ];
+}
+
+// YouTubeの動画詳細（概要欄）をYouTube Data APIで直接取得するヘルパー
+async function fetchYouTubeDetails(videoId: string, apiKey: string): Promise<{ description: string; title: string; channelTitle: string } | null> {
+  try {
+    const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${apiKey}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.items && data.items.length > 0) {
+        const snippet = data.items[0].snippet;
+        return {
+          description: snippet.description || '',
+          title: snippet.title || '',
+          channelTitle: snippet.channelTitle || '',
+        };
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch YouTube details for override:', e);
+  }
+  return null;
 }
 
 export async function GET(request: Request) {
@@ -223,56 +245,76 @@ export async function GET(request: Request) {
       console.error('VocaDB fetch error:', vocaErr);
     }
 
-    const vocaItems = (vocaData.items || []).map((item: any) => {
-      const youtubePv = (item.pvs || []).find((p: any) => p.service === 'Youtube');
-      const niconicoPv = (item.pvs || []).find((p: any) => p.service === 'NicoNicoDouga');
+    const ytApiKey = process.env.YOUTUBE_API_KEY;
 
-      const mappedCredits = (item.artists || []).map((art: any) => {
-        const roles = art.roles || [];
-        const artistType = (art.artistType || '').toLowerCase();
-        let derivedRole = 'other';
+    // ★ 【最重要拡張】VocaDBの登録曲であっても、YouTube PVがあれば概要欄をGeminiにスキャンさせて正しい10系統で上書きする
+    const vocaItems = await Promise.all(
+      (vocaData.items || []).map(async (item: any) => {
+        const youtubePv = (item.pvs || []).find((p: any) => p.service === 'Youtube');
+        const niconicoPv = (item.pvs || []).find((p: any) => p.service === 'NicoNicoDouga');
+        const ytId = youtubePv?.pvId || item.youtubeId;
 
-        if (roles.includes('Lyricist')) derivedRole = 'lyrics';
-        else if (roles.includes('Composer') || roles.includes('Arranger') || artistType === 'producer') derivedRole = 'music';
-        else if (roles.includes('Vocalist') || artistType === 'vocaloid') derivedRole = 'singer';
-        else if (roles.includes('Instrumentalist') || artistType === 'instrumentalist') derivedRole = 'instrument';
-        else if (roles.includes('Mixer')) derivedRole = 'mix';
-        else if (roles.includes('Illustrator') || artistType === 'illustrator') derivedRole = 'illust';
-        else if (roles.includes('Animator') || artistType === 'animator') derivedRole = 'movie';
-        else if (roles.includes('VoiceManipulator')) derivedRole = 'tuning';
+        let parsedCredits: any[] = [];
+
+        if (ytId && ytApiKey) {
+          const ytDetails = await fetchYouTubeDetails(ytId, ytApiKey);
+          if (ytDetails) {
+            const geminiResult = await parseCreditsWithGemini(ytDetails.description, ytDetails.channelTitle, query, ytDetails.title);
+            if (geminiResult && geminiResult.length > 0) {
+              parsedCredits = geminiResult;
+            }
+          }
+        }
+
+        // Geminiでスキャンできなかった場合のみVocaDBのメタデータにフォールバック
+        if (parsedCredits.length === 0) {
+          parsedCredits = (item.artists || []).map((art: any) => {
+            const roles = art.roles || [];
+            const artistType = (art.artistType || '').toLowerCase();
+            let derivedRole = 'other';
+
+            if (roles.includes('Lyricist')) derivedRole = 'lyrics';
+            else if (roles.includes('Composer') || roles.includes('Arranger') || artistType === 'producer') derivedRole = 'music';
+            else if (roles.includes('Vocalist') || artistType === 'vocaloid') derivedRole = 'singer';
+            else if (roles.includes('Instrumentalist') || artistType === 'instrumentalist') derivedRole = 'instrument';
+            else if (roles.includes('Mixer')) derivedRole = 'mix';
+            else if (roles.includes('Illustrator') || artistType === 'illustrator') derivedRole = 'illust';
+            else if (roles.includes('Animator') || artistType === 'animator') derivedRole = 'movie';
+            else if (roles.includes('VoiceManipulator')) derivedRole = 'tuning';
+
+            return {
+              role: derivedRole,
+              creatorName: art.name || art.artist?.name || 'Unknown',
+            };
+          });
+        }
 
         return {
-          role: derivedRole,
-          creatorName: art.name || art.artist?.name || 'Unknown',
+          ...item,
+          title: item.name || item.title || 'Untitled',
+          thumbUrl: item.thumbUrl || youtubePv?.thumbUrl || niconicoPv?.thumbUrl || '',
+          youtubeId: ytId,
+          niconicoId: niconicoPv?.pvId || item.niconicoId,
+          artists: Array.isArray(item.artists) ? item.artists : [],
+          pvs: Array.isArray(item.pvs) ? item.pvs : [],
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          credits: parsedCredits,
+          artistString: item.artistString || '',
         };
-      });
-
-      return {
-        ...item,
-        title: item.name || item.title || 'Untitled',
-        thumbUrl: item.thumbUrl || youtubePv?.thumbUrl || niconicoPv?.thumbUrl || '',
-        youtubeId: youtubePv?.pvId || item.youtubeId,
-        niconicoId: niconicoPv?.pvId || item.niconicoId,
-        artists: Array.isArray(item.artists) ? item.artists : [],
-        pvs: Array.isArray(item.pvs) ? item.pvs : [],
-        tags: Array.isArray(item.tags) ? item.tags : [],
-        credits: mappedCredits.length > 0 ? mappedCredits : (Array.isArray(item.credits) ? item.credits : []),
-        artistString: item.artistString || '',
-      };
-    });
+      })
+    );
 
     // --- 3. YouTube検索の統合判定 ---
     let ytItems: any[] = [];
-    const apiKey = process.env.YOUTUBE_API_KEY;
     const isPersonalQuery = shouldSearchYouTube(query);
-    const shouldFetchYT = Boolean(query.trim() && apiKey && (vocaItems.length === 0 || isPersonalQuery || mode === 'creator'));
+    const shouldFetchYT = Boolean(query.trim() && ytApiKey && (vocaItems.length === 0 || isPersonalQuery || mode === 'creator'));
 
     if (shouldFetchYT) {
       try {
         const exactQuery = `"${query.trim()}"`;
         const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
           exactQuery
-        )}&maxResults=20&key=${apiKey}`;
+        )}&maxResults=20&key=${ytApiKey}`;
 
         const ytRes = await fetch(ytUrl);
         const ytData = await ytRes.json();
@@ -284,7 +326,7 @@ export async function GET(request: Request) {
             .join(',');
 
           if (videoIds) {
-            const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoIds}&key=${apiKey}`;
+            const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoIds}&key=${ytApiKey}`;
             const detailsRes = await fetch(detailsUrl);
             const detailsData = await detailsRes.json();
 
