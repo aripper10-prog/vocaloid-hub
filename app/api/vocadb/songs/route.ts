@@ -8,38 +8,35 @@ const API_ENDPOINTS = {
   YOUTUBE_VIDEOS: 'https://www.googleapis.com/youtube/v3/videos',
 };
 
-// 新設した "other" を含めた10系統の有効なロール
+// 10系統の有効なロール
 const VALID_ROLES = ['music', 'lyrics', 'instrument', 'tuning', 'singer', 'mix', 'illust', 'movie', 'dance', 'other'];
 
 function sanitizeDescription(description: string = ''): string {
   return description.replace(/```/g, '').slice(0, 1500);
 }
 
-// 10系統への汎用的な正規化・振り分けロジック
-function normalizeRole(role: string = '', creatorName: string = ''): string {
+// 完全に個別名に依存しない、純粋なキーワード・文脈ベースの10系統振り分け関数
+function normalizeRole(role: string = ''): string {
   const lowerRole = role.trim().toLowerCase();
-  const lowerName = creatorName.trim().toLowerCase();
 
-  // 1. すでに正しいロール名ならそのまま返す
   if (VALID_ROLES.includes(lowerRole)) return lowerRole;
 
-  // 2. ボーカル・歌唱 (singer)
+  // 1. ボーカル・歌唱・シンガー (singer)
   if (
     lowerRole.includes('vocal') || 
     lowerRole.includes('singer') || 
-    lowerRole.includes('歌') || 
+    lowerRole.includes('歌唱') || 
     lowerRole.includes('ボーカル') || 
     lowerRole.includes('歌い手') ||
     lowerRole.includes('vocaloid') ||
-    lowerRole.includes('初音ミク') ||
-    lowerRole.includes('重音テト')
+    lowerRole.includes('vo.')
   ) {
     if (!lowerRole.includes('p') && !lowerRole.includes('producer')) {
       return 'singer';
     }
   }
 
-  // 3. 演奏・楽器隊 (instrument)
+  // 2. 演奏・楽器隊 (instrument)
   if (
     lowerRole.includes('instrument') || 
     lowerRole.includes('guitar') || 
@@ -53,44 +50,44 @@ function normalizeRole(role: string = '', creatorName: string = ''): string {
     lowerRole.includes('ベース') || 
     lowerRole.includes('ドラム') ||
     lowerRole.includes('ピアノ') ||
-    lowerRole.includes('guitarist') ||
-    lowerRole.includes('bassist') ||
-    lowerRole.includes('drummer')
+    lowerRole.includes('gt.') ||
+    lowerRole.includes('ba.') ||
+    lowerRole.includes('dr.')
   ) {
     return 'instrument';
   }
 
-  // 4. 作詞 (lyrics)
-  if (lowerRole.includes('lyric') || lowerRole.includes('作詞') || lowerRole.includes('詩')) {
+  // 3. 作詞 (lyrics)
+  if (lowerRole.includes('lyric') || lowerRole.includes('作詞') || lowerRole.includes('詩') || lowerRole.includes('詞')) {
     return 'lyrics';
   }
 
-  // 5. 調声 (tuning)
-  if (lowerRole.includes('tun') || lowerRole.includes('調声') || lowerRole.includes('vsqx')) {
+  // 4. 調声 (tuning)
+  if (lowerRole.includes('tun') || lowerRole.includes('調声') || lowerRole.includes('vsqx') || lowerRole.includes('ust')) {
     return 'tuning';
   }
 
-  // 6. MIX / Mastering (mix)
+  // 5. MIX / Mastering (mix)
   if (lowerRole.includes('mix') || lowerRole.includes('master') || lowerRole.includes('マスタリング') || lowerRole.includes('整音')) {
     return 'mix';
   }
 
-  // 7. イラスト (illust)
-  if (lowerRole.includes('illust') || lowerRole.includes('art') || lowerRole.includes('イラスト') || lowerRole.includes('絵') || lowerRole.includes('キャラクターデザイン') || lowerRole.includes('jacket')) {
+  // 6. イラスト (illust)
+  if (lowerRole.includes('illust') || lowerRole.includes('art') || lowerRole.includes('イラスト') || lowerRole.includes('絵') || lowerRole.includes('キャラクターデザイン') || lowerRole.includes('jacket') || lowerRole.includes('art work')) {
     return 'illust';
   }
 
-  // 8. 動画・映像 (movie)
+  // 7. 動画・映像 (movie)
   if (lowerRole.includes('movie') || lowerRole.includes('animat') || lowerRole.includes('video') || lowerRole.includes('動画') || lowerRole.includes('映像') || lowerRole.includes('mv') || lowerRole.includes('pv')) {
     return 'movie';
   }
 
-  // 9. 振付・ダンス (dance)
+  // 8. 振付・ダンス (dance)
   if (lowerRole.includes('dance') || lowerRole.includes('振付') || lowerRole.includes('ダンス') || lowerRole.includes('choreograph')) {
     return 'dance';
   }
 
-  // 10. 作曲 / 編曲 (music) - 明確な音楽制作系のみ
+  // 9. 作曲 / 編曲 (music)
   if (
     lowerRole.includes('music') || 
     lowerRole.includes('composer') || 
@@ -99,12 +96,14 @@ function normalizeRole(role: string = '', creatorName: string = ''): string {
     lowerRole.includes('作曲') || 
     lowerRole.includes('編曲') ||
     lowerRole.includes('producer') ||
-    lowerRole.includes('p')
+    lowerRole.includes('ボカロp') ||
+    lowerRole.includes('Music Producer') ||
+    lowerRole === 'p'
   ) {
     return 'music';
   }
 
-  // どこにも当てはまらないものは「その他 (other)」へ（※作編曲には絶対に落とさない）
+  // 10. その他 (other)
   return 'other';
 }
 
@@ -128,18 +127,25 @@ async function parseCreditsWithGemini(
   }
 
   try {
-    const prompt = 
-      '以下のYouTube動画の概要欄から、音楽制作に関わったクリエイター名と担当職域を抽出してください。\n\n' +
+const prompt = 
+      'あなたはボカロ曲・インディーズ音楽のメタデータ解析の専門家です。\n' +
+      '以下のYouTube動画の概要欄から、音楽制作に関わった【実際のクリエイター（個人・サークル名）】と【担当職域】を正確に抽出してください。\n\n' +
       '動画タイトル: "' + videoTitle + '"\n' +
       'チャンネル名: "' + channelTitle + '"\n' +
       '検索クエリ: "' + query + '"\n' +
       '概要欄:\n' + safeDescription + '\n\n' +
-      '【分類ルール】\n' +
-      '以下の【10種類のロール】のいずれかに必ず分類してください。判断に迷うものや、デザイン・企画・ロゴ等ティームのスタッフは "other" にしてください。\n' +
-      '- "music" (作曲、編曲、ボカロP)\n' +
-      '- "lyrics" (作詞)\n' +
+      '【厳格な抽出ルール（違反厳禁）】\n' +
+      '1. 【タイトルの混入禁止】動画タイトル、曲名、アルバム名、イベント名、企画名（例: "Ido-Lumina"、"Projectフィクション"、#VocaDuo2026 など）を、絶対にクリエイター名（creatorName）として抽出してはなりません。これらが作詞者や作曲者に入った時点で出力は失敗とみなされます。\n' +
+      '2. 【ロール混線の防止】\n' +
+      '   - "Vocal" / "歌唱" / "ボーカル" として記載されている人物（例: ヴァネッサ等）は、必ず "singer" ロールにしてください。「music」や「lyrics」にしては絶対にいけません。\n' +
+      '   - "Vocaloid P" / "ボカロP" / "Composer" として記載されている人物は "music" にしてください。\n' +
+      '   - "Lyrics" / "作詞" として記載されている人物は "lyrics" にしてください。\n' +
+      '3. 【全担当者の網羅】概要欄にあるすべてのクレジット（作詞、作曲、ボーカル、イラスト、動画、MIX、演奏、その他）を漏れなく拾い上げてください。\n\n' +
+      '【使用可能な10種類のロール】\n' +
+      '- "music" (作曲、編曲、ボカロP、Composer、Arranger)\n' +
+      '- "lyrics" (作詞、Lyricist)\n' +
       '- "instrument" (ギター、ベース、ドラム等の演奏者・楽器隊)\n' +
-      '- "singer" (ボーカル、歌唱、歌い手、ボカロイド名)\n' +
+      '- "singer" (ボーカル、歌唱、歌い手、Vocal)\n' +
       '- "tuning" (調声)\n' +
       '- "mix" (MIX、マスタリング)\n' +
       '- "illust" (イラスト、アートワーク)\n' +
@@ -148,7 +154,7 @@ async function parseCreditsWithGemini(
       '- "other" (その他：デザイン、ロゴ、企画、その他スタッフ等)\n\n' +
       '【出力形式の指定】\n' +
       '余計な挨拶やマークダウンは一切含めず、純粋なJSON形式のみを返してください。\n' +
-      '{\n  "isRelevant": true,\n  "credits": [\n    {"role": "music", "creatorName": "〇〇"}\n  ]}';
+      '{\n  "isRelevant": true,\n  "credits": [\n    {"role": "music", "creatorName": "〇〇"},\n    {"role": "singer", "creatorName": "〇〇"}\n  ]}';
 
     const res = await fetch(API_ENDPOINTS.GEMINI_FLASH + '?key=' + apiKey, {
       method: 'POST',
@@ -176,19 +182,24 @@ async function parseCreditsWithGemini(
       const normalizedCredits = rawCredits
         .map((c: any) => {
           let name = (c.creatorName || '').trim();
+          let role = normalizeRole(c.role);
+
+          // 汎用的なバリデーション：名前に動画タイトルやハッシュタグ、記号だけのものが含まれていたら除外
           if (
             !name ||
             cleanVideoTitle.includes(name.toLowerCase()) ||
-            name.startsWith('#')
+            name.startsWith('#') ||
+            name.length > 50
           ) {
-            name = channelTitle;
+            return null;
           }
+
           return {
-            role: normalizeRole(c.role, name),
+            role: role,
             creatorName: name,
           };
         })
-        .filter((c: any) => c.creatorName);
+        .filter(Boolean);
 
       const uniqueCredits = Array.from(
         new Map(normalizedCredits.map((c: any) => [`${c.role}_${c.creatorName}`, c])).values()
@@ -322,50 +333,30 @@ export async function GET(request: Request) {
       const youtubePv = (item.pvs || []).find((p: any) => p.service === 'Youtube');
       const niconicoPv = (item.pvs || []).find((p: any) => p.service === 'NicoNicoDouga');
 
-  const mappedCredits = (item.artists || []).map((art: any) => {
+      const mappedCredits = (item.artists || []).map((art: any) => {
         const rawRoles = art.roles || art.effectiveRoles || [];
         const roles = Array.isArray(rawRoles) ? rawRoles.map((r: any) => String(r).toLowerCase()) : [];
         const artistType = (art.artistType || art.artist?.artistType || '').toLowerCase();
         
-        // ★ アーティスト名（例: "キル (演奏)"）を取得
-        const artistName = String(art.name || art.artist?.name || '').trim();
-        const lowerName = artistName.toLowerCase();
-        
         let derivedRole = 'other';
-
-        // ★ カッコ書きのロール（例: "(演奏)", "(guitar)", "(bass)" 等）を汎用的に抽出する
-        const hasInstrumentInName = 
-          lowerName.includes('演奏') || 
-          lowerName.includes('guitar') || 
-          lowerName.includes('bass') || 
-          lowerName.includes('drum') || 
-          lowerName.includes('keyboard') || 
-          lowerName.includes('piano') ||
-          lowerName.includes('ギター') || 
-          lowerName.includes('ベース') || 
-          lowerName.includes('ドラム');
 
         const isLyricist = roles.includes('lyricist') || roles.includes('作詞');
         const isComposer = roles.includes('composer') || roles.includes('arranger') || roles.includes('作曲') || roles.includes('編曲');
         const isVocalist = roles.includes('vocalist') || roles.includes('vocal') || roles.includes('singer') || roles.includes('ボーカル') || roles.includes('歌唱') || artistType === 'vocaloid' || artistType === 'vocalist' || artistType === 'utau' || artistType === 'othervoice synthesizer';
-        const isInstrumentalist = roles.includes('instrumentalist') || roles.includes('guitarist') || roles.includes('bassist') || roles.includes('drummer') || artistType === 'instrumentalist' || roles.includes('演奏') || roles.includes('ギター') || hasInstrumentInName;
+        const isInstrumentalist = roles.includes('instrumentalist') || roles.includes('guitarist') || roles.includes('bassist') || roles.includes('drummer') || artistType === 'instrumentalist' || roles.includes('演奏') || roles.includes('ギター');
         const isMixer = roles.includes('mixer') || roles.includes('mastering') || roles.includes('mix');
         const isIllustrator = roles.includes('illustrator') || roles.includes('art') || artistType === 'illustrator';
         const isAnimator = roles.includes('animator') || roles.includes('vj') || artistType === 'animator';
         const isTuning = roles.includes('voicemanipulator') || roles.includes('tuning') || roles.includes('調声');
 
-        if (isComposer && !hasInstrumentInName && artistType !== 'producer' && !roles.includes('arranger')) {
-          // 例外的なComposer判定のガード
-        }
-
-        if (isInstrumentalist) {
-          derivedRole = 'instrument'; // ← これにより "キル (演奏)" が確実に楽器隊になる
-        } else if (isComposer || (artistType === 'producer' && !hasInstrumentInName)) {
+        if (isComposer || artistType === 'producer' || artistType === 'circle') {
           derivedRole = 'music';
         } else if (isLyricist && !isComposer) {
           derivedRole = 'lyrics';
         } else if (isVocalist || artistType === 'vocaloid' || artistType === 'utau') {
           derivedRole = 'singer';
+        } else if (isInstrumentalist) {
+          derivedRole = 'instrument';
         } else if (isIllustrator) {
           derivedRole = 'illust';
         } else if (isAnimator) {
@@ -380,9 +371,10 @@ export async function GET(request: Request) {
 
         return {
           role: derivedRole,
-          creatorName: artistName,
+          creatorName: art.name || art.artist?.name || 'Unknown',
         };
       });
+
       return {
         ...item,
         title: item.name || item.title || 'Untitled',
@@ -509,7 +501,7 @@ export async function GET(request: Request) {
       }
     });
 
- const allItems = Array.from(mergedMap.values());
+    const allItems = Array.from(mergedMap.values());
     const totalCount = vocaData.totalCount > 0 ? vocaData.totalCount : allItems.length;
 
     return NextResponse.json(
