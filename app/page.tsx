@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, Suspense, useRef } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useTheme } from './context/ThemeContext';
-import { searchVocaDBSongs, searchVocaDBArtists, getVocaDBSongDetail, VocaDBSong, VocaDBArtist } from '../lib/vocadb';
+import { searchVocaDBSongs, searchVocaDBArtists, getVocaDBSongDetail, VocaDBSong } from '../lib/vocadb';
 
 const PAGE_SIZE = 48;
 
@@ -386,15 +386,10 @@ function HomeContent() {
   const [activeModalSongId, setActiveModalSongId] = useState<string | null>(null);
   const [activeModalSongData, setActiveModalSongData] = useState<VocaDBSong | null>(null);
 
-  const [artistSuggestions, setArtistSuggestions] = useState<VocaDBArtist[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const suggestBoxRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     setSelectedRole(urlRole);
   }, [urlRole]);
 
-  // ★ 検索クエリや検索条件（モード・ソート・曲タイプ等）が変わったときだけAPIからデータを1回取得する
   useEffect(() => {
     if (urlMode === 'song') {
       setSongQueryInput(urlQuery);
@@ -476,35 +471,8 @@ function HomeContent() {
     };
   }, [urlMode, urlQuery, urlArtistId, urlPage, urlSongType, sort]);
 
-  useEffect(() => {
-    if (!creatorQueryInput.trim() || urlArtistId) {
-      setArtistSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      const suggestions = await searchVocaDBArtists(creatorQueryInput.trim());
-      setArtistSuggestions(suggestions);
-    }, 250);
-
-    return () => clearTimeout(timer);
-  }, [creatorQueryInput, urlArtistId]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (suggestBoxRef.current && !suggestBoxRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   const handleSongSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setCreatorQueryInput('');
-    setShowSuggestions(false);
     const q = songQueryInput.trim();
     if (!q) {
       handleResetAll();
@@ -515,8 +483,6 @@ function HomeContent() {
 
   const handleCreatorSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSongQueryInput('');
-    setShowSuggestions(false);
     const q = creatorQueryInput.trim();
     if (!q) {
       handleResetAll();
@@ -539,31 +505,12 @@ function HomeContent() {
     router.push(`/?mode=creator&query=${encodeURIComponent(q)}&role=${selectedRole}&page=1`);
   };
 
-  const handleSelectArtist = (artist: VocaDBArtist) => {
-    setShowSuggestions(false);
-    setCreatorQueryInput(artist.name);
-    setSongQueryInput('');
-    router.push(
-      `/?mode=creator&artistId=${artist.id}&query=${encodeURIComponent(artist.name)}&role=${selectedRole}&page=1`
-    );
-  };
-
   const handleResetAll = () => {
     setSongQueryInput('');
     setCreatorQueryInput('');
-    setShowSuggestions(false);
     window.location.href = '/';
   };
 
-  const changePage = (newPage: number) => {
-    if (newPage < 1) return;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('page', String(newPage));
-    router.replace(`/?${params.toString()}`);
-  };
-
-  // ★ 職域タブの切り替え：APIを再フェッチせず、手元の `songs` ステートを即座にフィルタリングする
   const handleRoleChange = (role: string) => {
     setSelectedRole(role);
     const params = new URLSearchParams(searchParams.toString());
@@ -582,7 +529,6 @@ function HomeContent() {
     setSort(newSort);
   };
 
-  // --- ★ 取得済みデータに対する手元でのクライアントサイド・フィルタリング ---
   const filteredSongs = songs.filter((song) => {
     let nameMatched = true;
     if (urlMode === 'creator' && urlQuery.trim()) {
@@ -598,7 +544,6 @@ function HomeContent() {
 
     if (!nameMatched) return false;
 
-    // 職域（role）による手元フィルタリング
     if (urlMode === 'creator' && selectedRole !== 'all') {
       const credits = song.credits || [];
       const artists = song.artists || [];
@@ -713,7 +658,7 @@ function HomeContent() {
 
           <div className={`p-5 sm:p-6 rounded-3xl border backdrop-blur-xl shadow-lg space-y-3 transition-all relative ${
             urlMode === 'creator' && urlQuery ? 'ring-2 ring-purple-500/50 border-purple-500/50' : isDark ? 'bg-slate-900/40 border-slate-800/80' : 'bg-white/80 border-slate-200/80'
-          }`} ref={suggestBoxRef}>
+          }`}>
             <div className="flex items-center gap-2">
               <span className="text-base">👤</span>
               <span className="text-xs font-black uppercase tracking-wider text-purple-400">クリエイター名・職域で検索</span>
@@ -724,10 +669,7 @@ function HomeContent() {
                   type="text"
                   placeholder="クリエイター名を入力..."
                   value={creatorQueryInput}
-                  onChange={(e) => {
-                    setCreatorQueryInput(e.target.value);
-                    if (e.target.value.trim().length > 1) setShowSuggestions(true);
-                  }}
+                  onChange={(e) => setCreatorQueryInput(e.target.value)}
                   className={`w-full rounded-2xl px-4 py-3 text-xs transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/30 ${
                     isDark ? 'bg-slate-950/80 border border-slate-800 text-slate-100' : 'bg-slate-50 border border-slate-200 text-slate-900'
                   }`}
@@ -737,28 +679,6 @@ function HomeContent() {
                 発掘 ➔
               </button>
             </form>
-
-            {showSuggestions && artistSuggestions.length > 0 && (
-              <div className={`absolute top-full left-0 right-0 mt-2 rounded-2xl border shadow-2xl backdrop-blur-2xl z-50 overflow-hidden max-h-72 overflow-y-auto ${
-                isDark ? 'bg-slate-950/98 border-slate-800' : 'bg-white/98 border-slate-200'
-              }`}>
-                {artistSuggestions.map((artist) => (
-                  <div
-                    key={artist.id}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      handleSelectArtist(artist);
-                    }}
-                    className={`w-full p-2.5 px-3 flex items-center justify-between transition-all cursor-pointer ${
-                      isDark ? 'hover:bg-slate-900 text-slate-200' : 'hover:bg-slate-50 text-slate-800'
-                    }`}
-                  >
-                    <div className="text-xs font-bold">{artist.name}</div>
-                    <span className="text-[9px] px-2 py-0.5 rounded-full border bg-purple-500/10 text-purple-300">{artist.artistType}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </section>
 
