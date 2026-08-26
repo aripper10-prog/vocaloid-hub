@@ -322,30 +322,50 @@ export async function GET(request: Request) {
       const youtubePv = (item.pvs || []).find((p: any) => p.service === 'Youtube');
       const niconicoPv = (item.pvs || []).find((p: any) => p.service === 'NicoNicoDouga');
 
-      const mappedCredits = (item.artists || []).map((art: any) => {
+  const mappedCredits = (item.artists || []).map((art: any) => {
         const rawRoles = art.roles || art.effectiveRoles || [];
         const roles = Array.isArray(rawRoles) ? rawRoles.map((r: any) => String(r).toLowerCase()) : [];
         const artistType = (art.artistType || art.artist?.artistType || '').toLowerCase();
         
-        let derivedRole = 'other'; // デフォルトをotherに変更し、作編曲への誤爆を防止
+        // ★ アーティスト名（例: "キル (演奏)"）を取得
+        const artistName = String(art.name || art.artist?.name || '').trim();
+        const lowerName = artistName.toLowerCase();
+        
+        let derivedRole = 'other';
+
+        // ★ カッコ書きのロール（例: "(演奏)", "(guitar)", "(bass)" 等）を汎用的に抽出する
+        const hasInstrumentInName = 
+          lowerName.includes('演奏') || 
+          lowerName.includes('guitar') || 
+          lowerName.includes('bass') || 
+          lowerName.includes('drum') || 
+          lowerName.includes('keyboard') || 
+          lowerName.includes('piano') ||
+          lowerName.includes('ギター') || 
+          lowerName.includes('ベース') || 
+          lowerName.includes('ドラム');
 
         const isLyricist = roles.includes('lyricist') || roles.includes('作詞');
         const isComposer = roles.includes('composer') || roles.includes('arranger') || roles.includes('作曲') || roles.includes('編曲');
         const isVocalist = roles.includes('vocalist') || roles.includes('vocal') || roles.includes('singer') || roles.includes('ボーカル') || roles.includes('歌唱') || artistType === 'vocaloid' || artistType === 'vocalist' || artistType === 'utau' || artistType === 'othervoice synthesizer';
-        const isInstrumentalist = roles.includes('instrumentalist') || roles.includes('guitarist') || roles.includes('bassist') || roles.includes('drummer') || artistType === 'instrumentalist' || roles.includes('演奏') || roles.includes('ギター');
+        const isInstrumentalist = roles.includes('instrumentalist') || roles.includes('guitarist') || roles.includes('bassist') || roles.includes('drummer') || artistType === 'instrumentalist' || roles.includes('演奏') || roles.includes('ギター') || hasInstrumentInName;
         const isMixer = roles.includes('mixer') || roles.includes('mastering') || roles.includes('mix');
         const isIllustrator = roles.includes('illustrator') || roles.includes('art') || artistType === 'illustrator';
         const isAnimator = roles.includes('animator') || roles.includes('vj') || artistType === 'animator';
         const isTuning = roles.includes('voicemanipulator') || roles.includes('tuning') || roles.includes('調声');
 
-        if (isComposer || artistType === 'producer' || artistType === 'circle') {
+        if (isComposer && !hasInstrumentInName && artistType !== 'producer' && !roles.includes('arranger')) {
+          // 例外的なComposer判定のガード
+        }
+
+        if (isInstrumentalist) {
+          derivedRole = 'instrument'; // ← これにより "キル (演奏)" が確実に楽器隊になる
+        } else if (isComposer || (artistType === 'producer' && !hasInstrumentInName)) {
           derivedRole = 'music';
         } else if (isLyricist && !isComposer) {
           derivedRole = 'lyrics';
         } else if (isVocalist || artistType === 'vocaloid' || artistType === 'utau') {
           derivedRole = 'singer';
-        } else if (isInstrumentalist) {
-          derivedRole = 'instrument';
         } else if (isIllustrator) {
           derivedRole = 'illust';
         } else if (isAnimator) {
@@ -360,10 +380,9 @@ export async function GET(request: Request) {
 
         return {
           role: derivedRole,
-          creatorName: art.name || art.artist?.name || 'Unknown',
+          creatorName: artistName,
         };
       });
-
       return {
         ...item,
         title: item.name || item.title || 'Untitled',
