@@ -263,32 +263,49 @@ export async function GET(request: Request) {
       console.error('VocaDB fetch error:', vocaErr);
     }
 
-   const vocaItems = (vocaData.items || []).map((item: any) => {
+ const vocaItems = (vocaData.items || []).map((item: any) => {
       const youtubePv = (item.pvs || []).find((p: any) => p.service === 'Youtube');
       const niconicoPv = (item.pvs || []).find((p: any) => p.service === 'NicoNicoDouga');
 
       const mappedCredits = (item.artists || []).map((art: any) => {
-        const roles = art.roles || [];
-        const artistType = (art.artistType || '').toLowerCase();
+        // VocaDBのrolesは文字列配列、あるいは文字列そのものの可能性があるため安全に処理
+        const rawRoles = art.roles || art.effectiveRoles || [];
+        const roles = Array.isArray(rawRoles) ? rawRoles.map((r: any) => String(r).toLowerCase()) : [];
+        const artistType = (art.artistType || art.artist?.artistType || '').toLowerCase();
+        const artistName = (art.name || art.artist?.name || '').toLowerCase();
+        
         let derivedRole = 'music';
 
-        // VocaDBの正確なロールおよびアーティストタイプから職域を判定
-        if (roles.includes('Lyricist') || roles.includes('lyricist')) {
+        // 1. ロール文字列やアーティストタイプによる厳密な判定
+        const isLyricist = roles.includes('lyricist') || roles.includes('作詞');
+        const isComposer = roles.includes('composer') || roles.includes('arranger') || roles.includes('作曲') || roles.includes('編曲');
+        const isVocalist = roles.includes('vocalist') || roles.includes('vocal') || roles.includes('singer') || roles.includes('ボーカル') || roles.includes('歌唱') || artistType === 'vocaloid' || artistType === 'vocalist' || artistType === 'utau' || artistType === 'othervoice synthesizer';
+        const isMixer = roles.includes('mixer') || roles.includes('mastering') || roles.includes('mix') || roles.includes('mix/mastering');
+        const isIllustrator = roles.includes('illustrator') || roles.includes('art') || artistType === 'illustrator';
+        const isAnimator = roles.includes('animator') || roles.includes('vj') || artistType === 'animator';
+        const isTuning = roles.includes('voicemanipulator') || roles.includes('tuning') || roles.includes('調声');
+
+        if (isLyricist && !isComposer) {
           derivedRole = 'lyrics';
-        } else if (roles.includes('Composer') || roles.includes('Arranger') || roles.includes('composer') || roles.includes('arranger')) {
-          derivedRole = 'music';
-        } else if (roles.includes('Vocalist') || roles.includes('vocalist') || artistType === 'vocalist' || artistType === 'vocaloid') {
+        } else if (isVocalist) {
           derivedRole = 'singer';
-        } else if (roles.includes('Mixer') || roles.includes('mixer') || roles.includes('Mastering')) {
-          derivedRole = 'mix';
-        } else if (roles.includes('Illustrator') || roles.includes('illustrator') || artistType === 'illustrator') {
+        } else if (isIllustrator) {
           derivedRole = 'illust';
-        } else if (roles.includes('Animator') || roles.includes('animator') || roles.includes('Vj')) {
+        } else if (isAnimator) {
           derivedRole = 'movie';
-        } else if (roles.includes('VoiceManipulator') || roles.includes('voicemanipulator')) {
+        } else if (isMixer) {
+          derivedRole = 'mix';
+        } else if (isTuning) {
           derivedRole = 'tuning';
-        } else if (artistType === 'producer') {
+        } else if (isComposer || artistType === 'producer' || artistType === 'circle') {
           derivedRole = 'music';
+        } else {
+          // それ以外の場合、名前やアーティストタイプから推測
+          if (artistType === 'vocaloid' || artistType === 'utau') {
+            derivedRole = 'singer';
+          } else {
+            derivedRole = 'music';
+          }
         }
 
         return {
