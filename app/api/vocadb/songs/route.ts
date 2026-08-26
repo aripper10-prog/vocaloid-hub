@@ -263,20 +263,33 @@ export async function GET(request: Request) {
       console.error('VocaDB fetch error:', vocaErr);
     }
 
-    const vocaItems = (vocaData.items || []).map((item: any) => {
+   const vocaItems = (vocaData.items || []).map((item: any) => {
       const youtubePv = (item.pvs || []).find((p: any) => p.service === 'Youtube');
       const niconicoPv = (item.pvs || []).find((p: any) => p.service === 'NicoNicoDouga');
 
       const mappedCredits = (item.artists || []).map((art: any) => {
         const roles = art.roles || [];
+        const artistType = (art.artistType || '').toLowerCase();
         let derivedRole = 'music';
-        if (roles.includes('Lyricist')) derivedRole = 'lyrics';
-        else if (roles.includes('Composer')) derivedRole = 'music';
-        else if (roles.includes('Vocalist')) derivedRole = 'singer';
-        else if (roles.includes('Mixer')) derivedRole = 'mix';
-        else if (roles.includes('Illustrator')) derivedRole = 'illust';
-        else if (roles.includes('Animator')) derivedRole = 'movie';
-        else if (roles.includes('VoiceManipulator')) derivedRole = 'tuning';
+
+        // VocaDBの正確なロールおよびアーティストタイプから職域を判定
+        if (roles.includes('Lyricist') || roles.includes('lyricist')) {
+          derivedRole = 'lyrics';
+        } else if (roles.includes('Composer') || roles.includes('Arranger') || roles.includes('composer') || roles.includes('arranger')) {
+          derivedRole = 'music';
+        } else if (roles.includes('Vocalist') || roles.includes('vocalist') || artistType === 'vocalist' || artistType === 'vocaloid') {
+          derivedRole = 'singer';
+        } else if (roles.includes('Mixer') || roles.includes('mixer') || roles.includes('Mastering')) {
+          derivedRole = 'mix';
+        } else if (roles.includes('Illustrator') || roles.includes('illustrator') || artistType === 'illustrator') {
+          derivedRole = 'illust';
+        } else if (roles.includes('Animator') || roles.includes('animator') || roles.includes('Vj')) {
+          derivedRole = 'movie';
+        } else if (roles.includes('VoiceManipulator') || roles.includes('voicemanipulator')) {
+          derivedRole = 'tuning';
+        } else if (artistType === 'producer') {
+          derivedRole = 'music';
+        }
 
         return {
           role: derivedRole,
@@ -297,7 +310,6 @@ export async function GET(request: Request) {
         artistString: item.artistString || '',
       };
     });
-
     let ytItems: any[] = [];
     const apiKey = process.env.YOUTUBE_API_KEY;
     const shouldFetchYT = Boolean(query.trim() && apiKey);
