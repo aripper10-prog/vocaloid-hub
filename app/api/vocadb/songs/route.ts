@@ -11,10 +11,9 @@ const API_ENDPOINTS = {
 const VALID_ROLES = ['music', 'lyrics', 'tuning', 'singer', 'mix', 'illust', 'movie', 'dance'];
 
 function sanitizeDescription(description: string = ''): string {
-  return description.replace(/```/g, '').slice(0, 1500); // 概要欄の読み込み文字数を少し増やして情報量アップ
+  return description.replace(/```/g, '').slice(0, 1500);
 }
 
-// ロール文字列のバリデーションと正規化（より多様な表記ゆれに対応）
 function normalizeRole(role: string = ''): string {
   const lower = role.trim().toLowerCase();
   if (VALID_ROLES.includes(lower)) return lower;
@@ -27,7 +26,6 @@ function normalizeRole(role: string = ''): string {
   if (lower.includes('tun') || lower.includes('調声') || lower.includes('vsqx')) return 'tuning';
   if (lower.includes('dance') || lower.includes('振付') || lower.includes('ダンス') || lower.includes('choreograph')) return 'dance';
   
-  // デフォルト（作曲・編曲・Music / Guitar / Bass などの楽器隊も広く music に統合）
   if (lower.includes('music') || lower.includes('composer') || lower.includes('arranger') || lower.includes('作編曲') || lower.includes('作曲') || lower.includes('編曲') || lower.includes('guitar')|| lower.includes('bass') || lower.includes('piano')) return 'music';
 
   return 'music';
@@ -36,7 +34,8 @@ function normalizeRole(role: string = ''): string {
 async function parseCreditsWithGemini(
   description: string = '', 
   channelTitle: string = '', 
-  query: string = ''
+  query: string = '',
+  videoTitle: string = ''
 ): Promise<{ credits: any[]; isRelevant: boolean }> {
   const apiKey = process.env.GEMINI_API_KEY;
   const safeDescription = sanitizeDescription(description);
@@ -53,28 +52,30 @@ async function parseCreditsWithGemini(
 
   try {
     const prompt = 
-      '以下のYouTube動画のメタデータ（概要欄）から、音楽制作に関わった**すべてのクリエイターとそれぞれの担当職域を余さず漏れなく**抽出してください。\n\n' +
-      '検索クエリ: "' + query + '"\n' +
+      '以下のYouTube動画のメタデータから、音楽制作に関わった【実際の個人・サークル名（クリエイター名）】と担当職域を余さず漏れなく抽出してください。\n\n' +
+      '動画タイトル: "' + videoTitle + '"\n' +
       'チャンネル名: "' + channelTitle + '"\n' +
+      '検索クエリ: "' + query + '"\n' +
       '概要欄:\n' + safeDescription + '\n\n' +
+      '【重要ルール：誤認の禁止】\n' +
+      '1. 動画タイトルや曲名（例: "Ido-Lumina" など）、企画名・チーム名（例: "Projectフィクション"）、ハッシュタグ（#VocaDuo2026など）を、そのまま作詞者や作曲者の名前（creatorName）に設定することは絶対に禁止です。\n' +
+      '2. クリエイター名には、必ず概要欄に書かれている具体的な「個人のペンネーム・アーティスト名・サークル主宰者名」を入れてください。分からない場合はチャンネル名や推測できる名前にしてください。\n' +
+      '3. 曲名やタイトルが作詞者や作曲者の欄に入ってしまっている出力を絶対に避けてください。\n\n' +
       '【タスク1：関連度判定 (isRelevant)】\n' +
-      'この動画は、検索クエリ "' + query + '" に本当に関連する音楽作品、あるいは関係するクリエイター自身の動画と言えますか？\n' +
-      '無関係な有名アーティストの公式MVやヒット曲である場合は必ず false にしてください。個人制作、ボカロ、インディーズ、同人、あるいは検索クエリの本人や関連曲である場合のみ true にしてください。\n\n' +
+      'この動画は、検索クエリ "' + query + '" に本当に関連する音楽作品と言えますか？無関係なら false、関連するなら true にしてください。\n\n' +
       '【タスク2：全クレジット抽出 (credits)】\n' +
-      '概要欄に書かれている「作詞」「作曲・編曲」「イラスト」「動画・映像」「MIX・マスタリング」「調声」「ボーカル・歌唱」「ダンス・振付」などの情報をすべて拾い上げ、配列として抽出してください。\n' +
-      '使用可能な8種類のロール（これ以外の文字列は使わないでください）:\n' +
-      '- "music" (作曲、編曲、作編曲、楽器演奏など)\n' +
+      '使用可能な8種類のロール:\n' +
+      '- "music" (作曲、編曲、作編曲、楽器)\n' +
       '- "lyrics" (作詞)\n' +
       '- "tuning" (調声)\n' +
-      '- "singer" (ボーカル、歌唱、歌い手、ボカロイド名など)\n' +
-      '- "mix" (MIX、マスタリング、音源編集)\n' +
-      '- "illust" (イラスト、アートワーク、ジャケット)\n' +
-      '- "movie" (動画、映像、MV制作、アニメーション)\n' +
+      '- "singer" (ボーカル、歌唱、歌い手、ボカロイド名)\n' +
+      '- "mix" (MIX、マスタリング)\n' +
+      '- "illust" (イラスト、アートワーク)\n' +
+      '- "movie" (動画、映像、MV)\n' +
       '- "dance" (振付、ダンス)\n\n' +
-      '※概要欄に記載のある人（例: "Illust: 〇〇", "Mix: 〇〇" など）は省略せず、すべて個別のオブジェクトとして抽出してください。\n\n' +
       '【出力形式の指定】\n' +
       '余計な挨拶やマークダウンは一切含めず、純粋なJSON形式のみを返してください。\n' +
-      '{\n  "isRelevant": true,\n  "credits": [\n    {"role": "music", "creatorName": "〇〇"},\n    {"role": "illust", "creatorName": "〇〇"},\n    {"role": "movie", "creatorName": "〇〇"}\n  ]\n}';
+      '{\n  "isRelevant": true,\n  "credits": [\n    {"role": "music", "creatorName": "〇〇"}\n  ]}';
 
     const res = await fetch(API_ENDPOINTS.GEMINI_FLASH + '?key=' + apiKey, {
       method: 'POST',
@@ -97,12 +98,28 @@ async function parseCreditsWithGemini(
       const parsed = JSON.parse(cleanJson);
 
       const rawCredits = Array.isArray(parsed.credits) ? parsed.credits : [];
-      const normalizedCredits = rawCredits.map((c: any) => ({
-        role: normalizeRole(c.role),
-        creatorName: c.creatorName || channelTitle,
-      }));
+      
+      // バックエンド側でも、曲名やタイトルと酷似している文字列がクリエイター名になっていたら除外・修正する防衛コード
+      const cleanVideoTitle = videoTitle.toLowerCase();
+      const normalizedCredits = rawCredits
+        .map((c: any) => {
+          let name = (c.creatorName || '').trim();
+          // もしクリエイター名に動画タイトルそのものや「Projectフィクション」などのチーム名、ハッシュタグが混ざっていたらチャンネル名にフォールバック
+          if (
+            !name ||
+            cleanVideoTitle.includes(name.toLowerCase()) ||
+            name.toLowerCase().includes('projectフィクション') ||
+            name.startsWith('#')
+          ) {
+            name = channelTitle;
+          }
+          return {
+            role: normalizeRole(c.role),
+            creatorName: name,
+          };
+        })
+        .filter((c: any) => c.creatorName);
 
-      // 重複するロール＆クリエイター名があればまとめる
       const uniqueCredits = Array.from(
         new Map(normalizedCredits.map((c: any) => [`${c.role}_${c.creatorName}`, c])).values()
       );
@@ -294,8 +311,10 @@ export async function GET(request: Request) {
                 detailsData.items.map(async (item: any) => {
                   const channelTitle = item.snippet?.channelTitle || 'Unknown';
                   const description = item.snippet?.description || '';
+                  const videoTitle = item.snippet?.title || '';
                   
-                  const { credits: parsedCredits, isRelevant } = await parseCreditsWithGemini(description, channelTitle, query);
+                  // videoTitleを渡して、タイトル名がクリエイター名に入らないように防御する
+                  const { credits: parsedCredits, isRelevant } = await parseCreditsWithGemini(description, channelTitle, query, videoTitle);
 
                   if (!isRelevant) {
                     return null;
@@ -320,7 +339,7 @@ export async function GET(request: Request) {
 
                   return {
                     id: 'yt_' + item.id,
-                    title: item.snippet?.title || 'Untitled',
+                    title: videoTitle || 'Untitled',
                     artists: mappedArtists.length > 0 ? mappedArtists : [
                       {
                         name: channelTitle,
