@@ -65,6 +65,13 @@ const ROLE_CONFIG: Record<
     darkBadge: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
     lightBadge: 'bg-rose-50 text-rose-700 border-rose-200',
   },
+other: {
+  label: '✨ その他',
+  icon: '✨',
+  darkBadge: 'bg-slate-500/10 text-slate-300 border-slate-500/30',
+  lightBadge: 'bg-slate-100 text-slate-700 border-slate-200',
+},
+  
 };
 
 const SONG_TYPE_MAP: Record<string, { label: string; color: string }> = {
