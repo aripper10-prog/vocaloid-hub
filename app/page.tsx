@@ -65,13 +65,12 @@ const ROLE_CONFIG: Record<
     darkBadge: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
     lightBadge: 'bg-rose-50 text-rose-700 border-rose-200',
   },
-other: {
-  label: '✨ その他',
-  icon: '✨',
-  darkBadge: 'bg-slate-500/10 text-slate-300 border-slate-500/30',
-  lightBadge: 'bg-slate-100 text-slate-700 border-slate-200',
-},
-  
+  other: {
+    label: '✨ その他',
+    icon: '✨',
+    darkBadge: 'bg-slate-500/10 text-slate-300 border-slate-500/30',
+    lightBadge: 'bg-slate-100 text-slate-700 border-slate-200',
+  },
 };
 
 const SONG_TYPE_MAP: Record<string, { label: string; color: string }> = {
@@ -395,6 +394,7 @@ function HomeContent() {
     setSelectedRole(urlRole);
   }, [urlRole]);
 
+  // ★ 検索クエリや検索条件（モード・ソート・曲タイプ等）が変わったときだけAPIからデータを1回取得する
   useEffect(() => {
     if (urlMode === 'song') {
       setSongQueryInput(urlQuery);
@@ -563,6 +563,7 @@ function HomeContent() {
     router.replace(`/?${params.toString()}`);
   };
 
+  // ★ 職域タブの切り替え：APIを再フェッチせず、手元の `songs` ステートを即座にフィルタリングする
   const handleRoleChange = (role: string) => {
     setSelectedRole(role);
     const params = new URLSearchParams(searchParams.toString());
@@ -581,6 +582,7 @@ function HomeContent() {
     setSort(newSort);
   };
 
+  // --- ★ 取得済みデータに対する手元でのクライアントサイド・フィルタリング ---
   const filteredSongs = songs.filter((song) => {
     let nameMatched = true;
     if (urlMode === 'creator' && urlQuery.trim()) {
@@ -596,6 +598,7 @@ function HomeContent() {
 
     if (!nameMatched) return false;
 
+    // 職域（role）による手元フィルタリング
     if (urlMode === 'creator' && selectedRole !== 'all') {
       const credits = song.credits || [];
       const artists = song.artists || [];
